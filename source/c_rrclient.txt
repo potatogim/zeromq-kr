@@ -1,0 +1,28 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Hello World client
+@@//@@{{@@  @@}}Connects REQ socket to tcp:@@//@@localhost:5559
+@@//@@{{@@  @@}}Sends "Hello" to server, expects "World" back
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to server//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]requester [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}zmq_connect (requester, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5559"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] request_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (request_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; request_nbr [[span style="color:#666666"]]!=[[/span]] [[span style="color:#666666"]]10[[/span]]; request_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}s_send (requester, [[span style="color:#BA2121"]]"Hello"[[/span]]);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (requester);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Received reply %d @@[@@%s@@]@@[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request_nbr, string);
+{{@@        @@}}free (string);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (requester);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,26 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Majordomo Protocol worker example
+@@//@@{{@@  @@}}Uses the mdwrk API to hide all MDP aspects
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "mdwrkapi.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+{{@@    @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]session [[span style="color:#666666"]]=[[/span]] mdwrk_new (
+{{@@        @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], [[span style="color:#BA2121"]]"echo"[[/span]], verbose);
+
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] mdwrk_recv (session, [[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (request [[span style="color:#666666"]]==[[/span]] [[span style="color:#008000"]]NULL[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Worker was interrupted//[[/span]]
+{{@@        @@}}reply [[span style="color:#666666"]]=[[/span]] request;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Echo is complex... :-)//[[/span]]
+{{@@    @@}}}
+{{@@    @@}}mdwrk_destroy ([[span style="color:#666666"]]&[[/span]]session);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

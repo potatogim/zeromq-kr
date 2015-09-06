@@ -1,0 +1,6 @@
+[[div class="code"]]
+mdcli_t [[span style="color:#666666"]]*[[/span]]mdcli_new{{@@     @@}}([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]broker);
+[[span style="color:#B00040"]]void[[/span]]{{@@     @@}}mdcli_destroy (mdcli_t [[span style="color:#666666"]]@@**@@[[/span]]self_p);
+[[span style="color:#B00040"]]int[[/span]]{{@@      @@}}mdcli_send{{@@    @@}}(mdcli_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]request_p);
+zmsg_t{{@@  @@}}[[span style="color:#666666"]]*[[/span]]mdcli_recv{{@@    @@}}(mdcli_t [[span style="color:#666666"]]*[[/span]]self);
+[[/div]]

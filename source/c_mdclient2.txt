@@ -1,0 +1,31 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Majordomo Protocol client example - asynchronous
+@@//@@{{@@  @@}}Uses the mdcli API to hide all MDP aspects
+@@//@@
+@@//@@{{@@  @@}}Lets us build this source without creating a library[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "mdcliapi2.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+{{@@    @@}}mdcli_t [[span style="color:#666666"]]*[[/span]]session [[span style="color:#666666"]]=[[/span]] mdcli_new ([[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], verbose);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] count;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (count [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; count [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100000[[/span]]; count[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_pushstr (request, [[span style="color:#BA2121"]]"Hello world"[[/span]]);
+{{@@        @@}}mdcli_send (session, [[span style="color:#BA2121"]]"echo"[[/span]], [[span style="color:#666666"]]&[[/span]]request);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (count [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; count [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100000[[/span]]; count[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] mdcli_recv (session);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (reply)
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted by Ctrl-C//[[/span]]
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"%d replies received[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], count);
+{{@@    @@}}mdcli_destroy ([[span style="color:#666666"]]&[[/span]]session);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

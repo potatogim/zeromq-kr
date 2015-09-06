@@ -1,0 +1,9 @@
+[[div class="code"]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]control [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (control, [[span style="color:#BA2121"]]"tcp:@@//@@*:5559"[[/span]]);
+{{@@    @@}}...
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send kill signal to workers//[[/span]]
+{{@@    @@}}zmq_msg_init_data ([[span style="color:#666666"]]&[[/span]]message, [[span style="color:#BA2121"]]"KILL"[[/span]], [[span style="color:#666666"]]5[[/span]]);
+{{@@    @@}}zmq_send (control, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+[[/div]]

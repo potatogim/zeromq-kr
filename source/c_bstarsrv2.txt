@@ -1,0 +1,44 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Binary Star server, using bstar reactor
+@@//@@
+
+@@//@@{{@@  @@}}Lets us build this source without creating a library
+#include "bstar.c"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Echo service//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_echo[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Arguments can be either of://[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@      @@}}-p{{@@  @@}}primary server, at tcp:@@//@@localhost:5001//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@      @@}}-b{{@@  @@}}backup server, at tcp:@@//@@localhost:5002//[[/span]]
+{{@@    @@}}bstar_t [[span style="color:#666666"]]*[[/span]]bstar;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-p"[[/span]])) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: Primary master, waiting for backup (slave)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}bstar [[span style="color:#666666"]]=[[/span]] bstar_new (BSTAR_PRIMARY,
+{{@@            @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5003"[[/span]], [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5004"[[/span]]);
+{{@@        @@}}bstar_voter (bstar, [[span style="color:#BA2121"]]"tcp:@@//@@*:5001"[[/span]], ZMQ_ROUTER, s_echo, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-b"[[/span]])) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: Backup slave, waiting for primary (master)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}bstar [[span style="color:#666666"]]=[[/span]] bstar_new (BSTAR_BACKUP,
+{{@@            @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5004"[[/span]], [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5003"[[/span]]);
+{{@@        @@}}bstar_voter (bstar, [[span style="color:#BA2121"]]"tcp:@@//@@*:5002"[[/span]], ZMQ_ROUTER, s_echo, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Usage: bstarsrvs { -p | -b }[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}exit ([[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}bstar_start (bstar);
+{{@@    @@}}bstar_destroy ([[span style="color:#666666"]]&[[/span]]bstar);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

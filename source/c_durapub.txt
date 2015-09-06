@@ -1,0 +1,38 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Publisher for durable subscriber
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Subscriber tells us when it's ready here//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sync [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_bind (sync, [[span style="color:#BA2121"]]"tcp:@@//@@*:5564"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We send updates via this socket//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5565"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for synchronization request//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (sync);
+{{@@    @@}}free (string);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now broadcast exactly 10 updates with pause//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] update_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (update_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; update_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]10[[/span]]; update_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] string @@[@@[[span style="color:#666666"]]20[[/span]]@@]@@;
+{{@@        @@}}sprintf (string, [[span style="color:#BA2121"]]"Update %d"[[/span]], update_nbr);
+{{@@        @@}}s_send (publisher, string);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}s_send (publisher, [[span style="color:#BA2121"]]"END"[[/span]]);
+
+{{@@    @@}}zmq_close (sync);
+{{@@    @@}}zmq_close (publisher);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

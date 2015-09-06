@@ -1,0 +1,5 @@
+[[div class="code"]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Specify primary and backup servers//[[/span]]
+{{@@    @@}}clone_connect (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5551"[[/span]]);
+{{@@    @@}}clone_connect (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5561"[[/span]]);
+[[/div]]

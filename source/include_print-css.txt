@@ -1,0 +1,17 @@
+[[module css]]
+@media print {
+    #side-bar  { display: none; }
+    #main-content { margin-left: 0; }
+    .page-watch-options { display: none; }
+    #page-options-bottom { display: none; }
+    #login-status { display: none; }
+    #search-top-box { display: none; }
+    .main-text { width:100%; font-size:9pt; }
+    .right-bar { display: none; }
+    .foldedtoc { display: none; }
+    div.code { overflow: visible; }
+    #container-wrap { width: 100%; }
+    #main-content { width: 100%; }
+    #footer { width: 100%; }
+}
+[[/module]]

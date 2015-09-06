@@ -1,0 +1,51 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Task ventilator
+@@//@@{{@@  @@}}Binds PUSH socket to tcp:@@//@@localhost:5557
+@@//@@{{@@  @@}}Sends batch of tasks to workers via that socket
+@@//@@
+#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to send messages on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sender [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUSH);
+{{@@    @@}}zmq_bind (sender, [[span style="color:#BA2121"]]"tcp:@@//@@*:5557"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to send start of batch message on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sink [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUSH);
+{{@@    @@}}zmq_connect (sink, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5558"[[/span]]);
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Press Enter when the workers are ready: "[[/span]]);
+{{@@    @@}}getchar ();
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Sending tasks to workers...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}The first message is "0" and signals start of batch//[[/span]]
+{{@@    @@}}s_send (sink, [[span style="color:#BA2121"]]"0"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize random number generator//[[/span]]
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send 100 tasks//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] task_nbr;
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] total_msec [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Total expected cost in msecs//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (task_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; task_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100[[/span]]; task_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] workload;
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Random workload from 1 to 100msecs//[[/span]]
+{{@@        @@}}workload [[span style="color:#666666"]]=[[/span]] randof ([[span style="color:#666666"]]100[[/span]]) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}total_msec [[span style="color:#666666"]]+=[[/span]] workload;
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] string @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@        @@}}sprintf (string, [[span style="color:#BA2121"]]"%d"[[/span]], workload);
+{{@@        @@}}s_send (sender, string);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Total expected cost: %d msec[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], total_msec);
+{{@@    @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Give 0MQ time to deliver//[[/span]]
+
+{{@@    @@}}zmq_close (sink);
+{{@@    @@}}zmq_close (sender);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

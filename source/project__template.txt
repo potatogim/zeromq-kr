@@ -1,0 +1,96 @@
+[[module CSS]]
+#page-title { display: none; }
+[[/module]]
+
+[[div class="obj-edit-button"]]
+[[button edit text="» Edit project"]]
+[[/div]]
+
+++ %%form_data{name}%% - %%form_data{title}%%
+
+[[image %%form_raw{logo}%% width="200px" alt="No Image Available"]]
+
+**Currently owned by %%form_data{owner}%%**
+
+%%form_data{description}%%
+
+* Homepage: %%form_data{homepage}%%
+* Repository: %%form_data{repository}%%
+* Tracker: %%form_data{tracker}%%
+* Bylaws: %%form_data{bylaws}%%
+* Language: %%form_data{language}%%
+* License: %%form_data{license}%%
+
+====
+
+[[form]]
+fields:
+  name:
+    label: Project name
+    type: text
+    width: 10
+    hint: "Shortname"
+  title:
+    label: Title
+    type: text
+    width: 80
+    hint: "Longer title for project"
+  description:
+    label: Description
+    type: text
+    width: 80
+    height: 3
+    hint: "Project description"
+  owner:
+    label: Project owner + email
+    type: text
+    width: 80
+    hint: "Where people can contact the owner"
+  homepage:
+    label: Homepage URL
+    type: text
+    width: 80
+    hint: "Web page or website that describes project"
+  repository:
+    label: Link to repository
+    type: text
+    width: 80
+    hint: "Typically, on github.com"
+  tracker:
+    label: Link to issue tracker
+    type: text
+    width: 80
+    hint: "Typically, on github.com"
+  bylaws:
+    label: Link to bylaws
+    type: text
+    width: 80
+    hint: "Typically, in repository"
+  language:
+    label: Main programming language
+    values:
+      "c++": "C++"
+      "c": "C"
+      "python": "Python"
+      "java": "Java"
+      "c#": ".NET C#"
+      "asciidoc": "asciidoc"
+      "wikidot": "Wikidot"
+    default: "C++"
+    hint: "Main programming language"
+  license:
+    label: License
+    values:
+      "lgpl": "LGPLv3+"
+      "gpl": "GPLv3+"
+      "cc-by-sa": "Creative Commons Attribution Share-Alike"
+      "bsd": "BSD"
+      "mit": "MIT/X11"
+      "other": "Other"
+    default: "lgpl"
+    hint: "License for project content"
+  logo:
+    label: Image or logo
+    type: file
+    category: image
+[[/form]]

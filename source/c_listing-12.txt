@@ -1,0 +1,7 @@
+[[div class="code"]]
+zmq_send (socket, [[span style="color:#666666"]]&[[/span]]message, ZMQ_SNDMORE);
+...
+zmq_send (socket, [[span style="color:#666666"]]&[[/span]]message, ZMQ_SNDMORE);
+...
+zmq_send (socket, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+[[/div]]

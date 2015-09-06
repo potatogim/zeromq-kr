@@ -1,0 +1,85 @@
+[[module CSS]]
+.foldedtoc #toc #toc-action-bar {
+    display: none
+}
+.foldedtoc #toc .title{
+    display: none;
+    border: 0px solid black;
+}
+.foldedtoc #toc {
+    border: 0px solid black;
+    margin: 0 0 0 -0,9em;
+}
+.foldedtoc .collapsible-block-link {
+    text-decoration:none
+}
+.readme {
+    background:none repeat scroll 0 0 #FFB0B0;
+    border: 1px solid #FF0000;
+    font-size: medium;
+    font-weight: bold;
+    letter-spacing: 1px;
+    padding: 1em;
+    text-align:center;
+}
+[[/module]]
+
+[[module css]]
+@media screen {
+    .main-text { width:65%; float:left; }
+    .right-bar { width:30%; margin-left:4%; float:left; }
+    .overflow { overflow:hidden; }
+    div.code { overflow: visible; }
+}
+@media print {
+    #side-bar  { display: none; }
+    #main-content { margin-left: 0; }
+    .page-watch-options { display: none; }
+    #page-options-bottom { display: none; }
+    #login-status { display: none; }
+    #search-top-box { display: none; }
+    .main-text { width:100%; font-size:9pt; }
+    .right-bar { display: none; }
+    .overflow { }
+    .foldedtoc { display: none; }
+    div.code { overflow: visible; }
+    img { border-width:0; }
+}
+[[/module]]
+
+[[div class="overflow"]]
+[[div class="main-text"]]
+
+[[div class="foldedtoc" style="border:1px black dashed; margin:10px; width:20em;"]]
+[[collapsible show="+ Table of Contents" hide="- Table of Contents"]]
+[[toc]]
+[[/collapsible]]
+[[/div]]
+
+[[iftags +_deprecated]]
+[[size larger]]**WARNING: This text is deprecated and refers to an old version of ØMQ.  It remains here for historical interest.  DO NOT USE THIS TO LEARN ØMQ.**[[/size]]
+[[/iftags]]
+
+%%content%%
+[[/div]]
+
+[[div class="right-bar"]]
+
+//Written: %%created_at|%Y.%m.%e%%//
+//Revised: %%updated_at|%Y.%m.%e%%//
+
+If you found this page useful, please rate it up so others will find it.
+[[module Rate]]
+
+[[button edit text="Edit this page"]] | [[button tags text="Tags"]] | [[button print text="Print"]]
+
+[[size x-large]]**See also**[[/size]]
+
+[[module ListPages order="title" separate="no" range="others" perPage="100" limit="5000"]]
+* %%linked_title%% [[image http://community.wikidot.com/local--files/nav:side/accessories-text-editor-32x32.png link="*/%%fullname%%/edit/true/norender/true/noredirect/true"]]
+[[/module]]
+
+[[[%%category%%:_start|Show summary of %%category%% category]]]
+
+[[/div]]
+[[/div]]

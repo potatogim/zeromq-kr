@@ -1,0 +1,48 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Synchronized subscriber
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}First, connect our subscriber socket//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5561"[[/span]]);
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_SUBSCRIBE, [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}0MQ is so fast, we need to wait a while...//[[/span]]
+{{@@    @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Second, synchronize with publisher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]syncclient [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}zmq_connect (syncclient, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5562"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- send a synchronization request//[[/span]]
+{{@@    @@}}s_send (syncclient, [[span style="color:#BA2121"]]""[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- wait for synchronization reply//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (syncclient);
+{{@@    @@}}free (string);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Third, get our updates and report how many we got//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] update_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (subscriber);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (strcmp (string, [[span style="color:#BA2121"]]"END"[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}free (string);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}free (string);
+{{@@        @@}}update_nbr[[span style="color:#666666"]]++[[/span]];
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Received %d updates[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], update_nbr);
+
+{{@@    @@}}zmq_close (subscriber);
+{{@@    @@}}zmq_close (syncclient);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

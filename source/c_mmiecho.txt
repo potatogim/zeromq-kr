@@ -1,0 +1,33 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}MMI echo query example
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "mdcliapi.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+{{@@    @@}}mdcli_t [[span style="color:#666666"]]*[[/span]]session [[span style="color:#666666"]]=[[/span]] mdcli_new ([[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], verbose);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}This is the service we want to look up//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (request, [[span style="color:#BA2121"]]"echo"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}This is the service we send our request to//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] mdcli_send (session, [[span style="color:#BA2121"]]"mmi.service"[[/span]], [[span style="color:#666666"]]&[[/span]]request);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply_code [[span style="color:#666666"]]=[[/span]] zframe_strdup (zmsg_first (reply));
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Lookup echo service: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply_code);
+{{@@        @@}}free (reply_code);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"E: no response from broker, make sure it's running[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}mdcli_destroy ([[span style="color:#666666"]]&[[/span]]session);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

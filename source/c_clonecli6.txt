@@ -1,0 +1,34 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Clone client Model Six
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "clone.c"
+
+#define SUBTREE "/client/"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create distributed hash instance//[[/span]]
+{{@@    @@}}clone_t [[span style="color:#666666"]]*[[/span]]clone [[span style="color:#666666"]]=[[/span]] clone_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Specify configuration//[[/span]]
+{{@@    @@}}clone_subtree (clone, SUBTREE);
+{{@@    @@}}clone_connect (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost"[[/span]], [[span style="color:#BA2121"]]"5556"[[/span]]);
+{{@@    @@}}clone_connect (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost"[[/span]], [[span style="color:#BA2121"]]"5566"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set random tuples into the distributed hash//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set random value, check it was stored//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] key @@[@@[[span style="color:#666666"]]255[[/span]]@@]@@;
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] value @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@        @@}}sprintf (key, [[span style="color:#BA2121"]]"%s%d"[[/span]], SUBTREE, randof ([[span style="color:#666666"]]10000[[/span]]));
+{{@@        @@}}sprintf (value, [[span style="color:#BA2121"]]"%d"[[/span]], randof ([[span style="color:#666666"]]1000000[[/span]]));
+{{@@        @@}}clone_set (clone, key, value, randof ([[span style="color:#666666"]]30[[/span]]));
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}clone_destroy ([[span style="color:#666666"]]&[[/span]]clone);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

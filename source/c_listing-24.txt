@@ -1,0 +1,5 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, zlist_size (workers)[[span style="color:#666666"]]?[[/span]] [[span style="color:#666666"]]2[[/span]][[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@    @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+[[/div]]

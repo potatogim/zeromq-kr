@@ -1,0 +1,123 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Paranoid Pirate worker
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+
+#define HEARTBEAT_LIVENESS{{@@  @@}}3{{@@       @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}3-5 is reasonable//[[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT_INTERVAL{{@@  @@}}1000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+[[span style="color:#BC7A00"]]#define INTERVAL_INIT{{@@       @@}}1000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Initial reconnect//[[/span]]
+[[span style="color:#BC7A00"]]#define INTERVAL_MAX{{@@       @@}}32000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}After exponential backoff//[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Paranoid Pirate Protocol constants//[[/span]]
+[[span style="color:#BC7A00"]]#define PPP_READY{{@@       @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+[[span style="color:#BC7A00"]]#define PPP_HEARTBEAT{{@@   @@}}"\002"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker heartbeat//[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Helper function that returns a new configured socket
+@@//@@{{@@  @@}}connected to the Paranoid Pirate queue[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_worker_socket[[/span]] (zctx_t [[span style="color:#666666"]]*[[/span]]ctx) {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell queue we're ready for work//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: worker ready[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (PPP_READY, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, worker, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] worker;
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] s_worker_socket (ctx);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If liveness hits zero, queue is considered disconnected//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] interval [[span style="color:#666666"]]=[[/span]] INTERVAL_INIT;
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send out heartbeats at regular intervals//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] cycles [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { worker,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], HEARTBEAT_INTERVAL [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get message//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- 3-part envelope + content -> request//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- 1-part HEARTBEAT -> heartbeat//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zmsg_size (msg) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]3[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Simulate various problems, after a few cycles//[[/span]]
+{{@@                @@}}cycles[[span style="color:#666666"]]++[[/span]];
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]5[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"I: simulating a crash[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@                    @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@                @@}}}
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]5[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"I: simulating CPU overload[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                    @@}}sleep ([[span style="color:#666666"]]3[[/span]]);
+{{@@                    @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@                        @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@                @@}}}
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"I: normal reply[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, worker);
+{{@@                @@}}liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+{{@@                @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some heavy work//[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@                    @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zmsg_size (msg) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@                @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zmsg_first (msg);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (zframe_data (frame), PPP_HEARTBEAT, [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                    @@}}liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"E: invalid message[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                    @@}}zmsg_dump (msg);
+{{@@                @@}}}
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"E: invalid message[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                @@}}zmsg_dump (msg);
+{{@@            @@}}}
+{{@@            @@}}interval [[span style="color:#666666"]]=[[/span]] INTERVAL_INIT;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]@@--@@[[/span]]liveness [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"W: heartbeat failure, can't reach queue[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"W: reconnecting in %zd msec...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], interval);
+{{@@            @@}}zclock_sleep (interval);
+
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (interval [[span style="color:#666666"]]<[[/span]] INTERVAL_MAX)
+{{@@                @@}}interval [[span style="color:#666666"]]*=[[/span]] [[span style="color:#666666"]]2[[/span]];
+{{@@            @@}}zsocket_destroy (ctx, worker);
+{{@@            @@}}worker [[span style="color:#666666"]]=[[/span]] s_worker_socket (ctx);
+{{@@            @@}}liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+{{@@        @@}}}
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send heartbeat to queue if it's time//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>[[/span]] heartbeat_at) {
+{{@@            @@}}heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: worker heartbeat[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (PPP_HEARTBEAT, [[span style="color:#666666"]]1[[/span]]);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, worker, [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

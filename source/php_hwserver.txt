@@ -1,0 +1,27 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]<?php[[/span]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]/*
+ *{{@@  @@}}Hello World server
+ *{{@@  @@}}Binds REP socket to tcp:@@//@@*:5555
+ *{{@@  @@}}Expects "Hello" from client, replies with "World"
+ * @author Ian Barber <ian(dot)barber(at)gmail(dot)com>
+ */[[/span]][[/span]]
+
+[[span style="color:#19177C"]]$context[[/span]] [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]**new**[[/span]] ZMQContext([[span style="color:#666666"]]1[[/span]]);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to clients//[[/span]]
+[[span style="color:#19177C"]]$responder[[/span]] [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]**new**[[/span]] ZMQSocket([[span style="color:#19177C"]]$context[[/span]], ZMQ[[span style="color:#666666"]]::[[/span]][[span style="color:#7D9029"]]SOCKET_REP[[/span]]);
+[[span style="color:#19177C"]]$responder[[/span]][[span style="color:#666666"]]->[[/span]][[span style="color:#7D9029"]]bind[[/span]]([[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+
+[[span style="color:#008000"]]**while**[[/span]]([[span style="color:#008000"]]**true**[[/span]]) {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for next request from client//[[/span]]
+{{@@    @@}}[[span style="color:#19177C"]]$request[[/span]] [[span style="color:#666666"]]=[[/span]] [[span style="color:#19177C"]]$responder[[/span]][[span style="color:#666666"]]->[[/span]][[span style="color:#7D9029"]]recv[[/span]]();
+{{@@    @@}}[[span style="color:#008000"]]printf[[/span]] ([[span style="color:#BA2121"]]"Received request: @@[@@%s@@]@@[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], [[span style="color:#19177C"]]$request[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some 'work'//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]sleep[[/span]] ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send reply back to client//[[/span]]
+{{@@    @@}}[[span style="color:#19177C"]]$responder[[/span]][[span style="color:#666666"]]->[[/span]][[span style="color:#7D9029"]]send[[/span]]([[span style="color:#BA2121"]]"World"[[/span]]);{{@@    @@}}
+}
+[[/div]]

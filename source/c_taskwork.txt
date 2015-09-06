@@ -1,0 +1,42 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Task worker
+@@//@@{{@@  @@}}Connects PULL socket to tcp:@@//@@localhost:5557
+@@//@@{{@@  @@}}Collects workloads from ventilator via that socket
+@@//@@{{@@  @@}}Connects PUSH socket to tcp:@@//@@localhost:5558
+@@//@@{{@@  @@}}Sends results to sink via that socket
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to receive messages on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_connect (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to send messages to//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sender [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUSH);
+{{@@    @@}}zmq_connect (sender, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process tasks forever//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Simple progress indicator for the viewer//[[/span]]
+{{@@        @@}}fflush (stdout);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"%s."[[/span]], string);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do the work//[[/span]]
+{{@@        @@}}s_sleep (atoi (string));
+{{@@        @@}}free (string);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send results to sink//[[/span]]
+{{@@        @@}}s_send (sender, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_close (sender);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

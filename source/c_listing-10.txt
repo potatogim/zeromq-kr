@@ -1,0 +1,9 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+assert (context);
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REP);
+assert (socket);
+[[span style="color:#B00040"]]int[[/span]] rc;
+rc [[span style="color:#666666"]]=[[/span]] zmq_bind (socket, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+assert (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+[[/div]]

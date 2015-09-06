@@ -1,0 +1,15 @@
+[[div class="code"]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send out heartbeats at regular intervals//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] heartbeat_at [[span style="color:#666666"]]=[[/span]] s_clock () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}...
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]1[[/span]], HEARTBEAT_INTERVAL [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]1000[[/span]]);
+{{@@        @@}}...
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do this unconditionally, whatever zmq_poll did//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (s_clock () [[span style="color:#666666"]]>[[/span]] heartbeat_at) {
+{{@@            @@}}... Send heartbeats to all peers that expect them
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set timer for next heartbeat//[[/span]]
+{{@@            @@}}heartbeat_at [[span style="color:#666666"]]=[[/span]] s_clock () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@        @@}}}
+{{@@    @@}}}
+[[/div]]

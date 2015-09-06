@@ -1,0 +1,198 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Binary Star server
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}We send state information every this often
+@@//@@{{@@  @@}}If peer doesn't respond in two heartbeats, it is 'dead'[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT 1000{{@@          @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}In msecs//[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}States we can be in at any point in time//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**enum**[[/span]] {
+{{@@    @@}}STATE_PRIMARY [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]],{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Primary, waiting for peer to connect//[[/span]]
+{{@@    @@}}STATE_BACKUP [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Backup, waiting for peer to connect//[[/span]]
+{{@@    @@}}STATE_ACTIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]3[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Active - accepting connections//[[/span]]
+{{@@    @@}}STATE_PASSIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]4[[/span]]{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Passive - not accepting connections//[[/span]]
+} state_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Events, which start with the states our peer can be in//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**enum**[[/span]] {
+{{@@    @@}}PEER_PRIMARY [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is pending primary//[[/span]]
+{{@@    @@}}PEER_BACKUP [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]],{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is pending backup//[[/span]]
+{{@@    @@}}PEER_ACTIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]3[[/span]],{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is active//[[/span]]
+{{@@    @@}}PEER_PASSIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]4[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is passive//[[/span]]
+{{@@    @@}}CLIENT_REQUEST [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5[[/span]]{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Client makes request//[[/span]]
+} event_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our finite state machine//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}state_t state;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current state//[[/span]]
+{{@@    @@}}event_t event;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current event//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] peer_expiry;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When peer is considered 'dead'//[[/span]]
+} bstar_t;
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Execute finite state machine (apply event to state)
+@@//@@{{@@  @@}}Returns TRUE if there was an exception[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] Bool
+[[span style="color:#0000FF"]]s_state_machine[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]fsm)
+{
+{{@@    @@}}Bool exception [[span style="color:#666666"]]=[[/span]] FALSE;
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Primary server is waiting for peer to connect//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Accepts CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_PRIMARY) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_BACKUP) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: connected to backup (slave), ready as master[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: connected to backup (master), ready as slave[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_PASSIVE;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Backup server is waiting for peer to connect//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Rejects CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_BACKUP) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: connected to primary (master), ready as slave[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_PASSIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] CLIENT_REQUEST)
+{{@@            @@}}exception [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server is active//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Accepts CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_ACTIVE) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Two masters would mean split-brain//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: fatal error - dual masters, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}exception [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server is passive//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}CLIENT_REQUEST events can trigger failover if peer looks dead//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_PASSIVE) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_PRIMARY) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer is restarting - become active, peer will go passive//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: primary (slave) is restarting, ready as master[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_BACKUP) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer is restarting - become active, peer will go passive//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: backup (slave) is restarting, ready as master[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_PASSIVE) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Two passives would mean cluster would be non-responsive//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: fatal error - dual slaves, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}exception [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (fsm[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] CLIENT_REQUEST) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer becomes master if timeout has passed//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}It's the client request that triggers the failover//[[/span]]
+{{@@            @@}}assert (fsm[[span style="color:#666666"]]->[[/span]]peer_expiry [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] fsm[[span style="color:#666666"]]->[[/span]]peer_expiry) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If peer is dead, switch to the active state//[[/span]]
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"I: failover successful, ready as master[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                @@}}fsm[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If peer is alive, reject connections//[[/span]]
+{{@@                @@}}exception [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] exception;
+}
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Arguments can be either of://[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@      @@}}-p{{@@  @@}}primary server, at tcp:@@//@@localhost:5001//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@      @@}}-b{{@@  @@}}backup server, at tcp:@@//@@localhost:5002//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statepub [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PUB);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statesub [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}bstar_t fsm [[span style="color:#666666"]]=[[/span]] { [[span style="color:#666666"]]0[[/span]] };
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-p"[[/span]])) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: Primary master, waiting for backup (slave)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5001"[[/span]]);
+{{@@        @@}}zsocket_bind (statepub, [[span style="color:#BA2121"]]"tcp:@@//@@*:5003"[[/span]]);
+{{@@        @@}}zsocket_connect (statesub, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5004"[[/span]]);
+{{@@        @@}}fsm.state [[span style="color:#666666"]]=[[/span]] STATE_PRIMARY;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-b"[[/span]])) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: Backup slave, waiting for primary (master)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5002"[[/span]]);
+{{@@        @@}}zsocket_bind (statepub, [[span style="color:#BA2121"]]"tcp:@@//@@*:5004"[[/span]]);
+{{@@        @@}}zsocket_connect (statesub, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5003"[[/span]]);
+{{@@        @@}}fsm.state [[span style="color:#666666"]]=[[/span]] STATE_BACKUP;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Usage: bstarsrv { -p | -b }[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@        @@}}exit ([[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set timer for next outgoing state message//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] send_state_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT;
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ statesub, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] time_left [[span style="color:#666666"]]=[[/span]] ([[span style="color:#B00040"]]int[[/span]]) ((send_state_at [[span style="color:#666666"]]-[[/span]] zclock_time ()));
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (time_left [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@            @@}}time_left [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]2[[/span]], time_left [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context has been shut down//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Have a client request//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (frontend);
+{{@@            @@}}fsm.event [[span style="color:#666666"]]=[[/span]] CLIENT_REQUEST;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (s_state_machine ([[span style="color:#666666"]]&[[/span]]fsm) [[span style="color:#666666"]]==[[/span]] FALSE)
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Answer client by echoing request back//[[/span]]
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, frontend);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Have state from our peer, execute as event//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]message [[span style="color:#666666"]]=[[/span]] zstr_recv (statesub);
+{{@@            @@}}fsm.event [[span style="color:#666666"]]=[[/span]] atoi (message);
+{{@@            @@}}free (message);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (s_state_machine ([[span style="color:#666666"]]&[[/span]]fsm))
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Error, so exit//[[/span]]
+{{@@            @@}}fsm.peer_expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]*[[/span]] HEARTBEAT;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we timed-out, send state to peer//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] send_state_at) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] message @@[@@[[span style="color:#666666"]]2[[/span]]@@]@@;
+{{@@            @@}}sprintf (message, [[span style="color:#BA2121"]]"%d"[[/span]], fsm.state);
+{{@@            @@}}zstr_send (statepub, message);
+{{@@            @@}}send_state_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"W: interrupted[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Shutdown sockets and context//[[/span]]
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,62 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Task worker - design 2
+@@//@@{{@@  @@}}Adds pub-sub flow to receive and respond to kill signal
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to receive messages on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_connect (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to send messages to//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sender [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUSH);
+{{@@    @@}}zmq_connect (sender, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket for control input//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]controller [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (controller, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5559"[[/span]]);
+{{@@    @@}}zmq_setsockopt (controller, ZMQ_SUBSCRIBE, [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages from receiver and controller//[[/span]]
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ receiver, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ controller, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages from both sockets//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_msg_t message;
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@            @@}}zmq_recv (receiver, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do the work//[[/span]]
+{{@@            @@}}s_sleep (atoi (([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]) zmq_msg_data ([[span style="color:#666666"]]&[[/span]]message)));
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send results to sink//[[/span]]
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@            @@}}zmq_send (sender, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Simple progress indicator for the viewer//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"."[[/span]]);
+{{@@            @@}}fflush (stdout);
+
+{{@@            @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Any waiting controller command acts as 'KILL'//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@                      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Exit loop//[[/span]]
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Finished//[[/span]]
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_close (sender);
+{{@@    @@}}zmq_close (controller);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

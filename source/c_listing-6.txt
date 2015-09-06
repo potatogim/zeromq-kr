@@ -1,0 +1,23 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]mousetrap;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create socket for catching mice//[[/span]]
+mousetrap [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Configure the socket//[[/span]]
+[[span style="color:#B00040"]]int64_t[[/span]] jawsize [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]10000[[/span]];
+zmq_setsockopt (mousetrap, ZMQ_HWM, [[span style="color:#666666"]]&[[/span]]jawsize, [[span style="color:#008000"]]**sizeof**[[/span]] jawsize);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Plug socket into mouse hole//[[/span]]
+zmq_connect (mousetrap, [[span style="color:#BA2121"]]"tcp:@@//@@192.168.55.221:5001"[[/span]]);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for juicy mouse to arrive//[[/span]]
+zmq_msg_t mouse;
+zmq_msg_init ([[span style="color:#666666"]]&[[/span]]mouse);
+zmq_recv (mousetrap, [[span style="color:#666666"]]&[[/span]]mouse, [[span style="color:#666666"]]0[[/span]]);
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy the mouse//[[/span]]
+zmq_msg_close ([[span style="color:#666666"]]&[[/span]]mouse);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy the socket//[[/span]]
+zmq_close (mousetrap);
+[[/div]]

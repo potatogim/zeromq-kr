@@ -1,0 +1,362 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]/*{{@@  @@}}=====================================================================
+{{@@    @@}}flcliapi - Freelance Pattern agent class
+{{@@    @@}}Model 3: uses ROUTER socket to address specific services
+
+{{@@    @@}}@@---------------------------------------------------------------------@@
+{{@@    @@}}Copyright (c) 1991-2011 iMatix Corporation <www.imatix.com>
+{{@@    @@}}Copyright other contributors as noted in the AUTHORS file.
+
+{{@@    @@}}This file is part of the ZeroMQ Guide: http:@@//@@zguide.zeromq.org
+
+{{@@    @@}}This is free software; you can redistribute it and/or modify it under
+{{@@    @@}}the terms of the GNU Lesser General Public License as published by
+{{@@    @@}}the Free Software Foundation; either version 3 of the License, or (at
+{{@@    @@}}your option) any later version.
+
+{{@@    @@}}This software is distributed in the hope that it will be useful, but
+{{@@    @@}}WITHOUT ANY WARRANTY; without even the implied warranty of
+{{@@    @@}}MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+{{@@    @@}}Lesser General Public License for more details.
+
+{{@@    @@}}You should have received a copy of the GNU Lesser General Public
+{{@@    @@}}License along with this program. If not, see
+{{@@    @@}}<http:@@//@@www.gnu.org/licenses/>.
+{{@@    @@}}=====================================================================
+*/[[/span]][[/span]]
+[[span style="color:#BC7A00"]]
+#include "flcliapi.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}If no server replies within this time, abandon request//[[/span]]
+[[span style="color:#BC7A00"]]#define GLOBAL_TIMEOUT{{@@  @@}}3000{{@@    @@}}[[/span]][[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}msecs
+@@//@@{{@@  @@}}PING interval for servers we think are alive[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#define PING_INTERVAL{{@@   @@}}2000{{@@    @@}}[[/span]][[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}msecs
+@@//@@{{@@  @@}}Server considered dead if silent for this long[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#define SERVER_TTL{{@@      @@}}6000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}=====================================================================
+@@//@@{{@@  @@}}Synchronous part, works in our application thread[[/span]][[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Structure of our class[[/span]][[/span]]
+
+[[span style="color:#008000"]]**struct**[[/span]] _flcliapi_t {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our context wrapper//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe;{{@@         @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Pipe through to flcliapi agent//[[/span]]
+};
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This is the thread that handles our real flcliapi class//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] flcliapi_agent ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe);
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor[[/span]][[/span]]
+
+flcliapi_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]flcliapi_new[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}flcliapi_t
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self;
+
+{{@@    @@}}self [[span style="color:#666666"]]=[[/span]] (flcliapi_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (flcliapi_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]pipe [[span style="color:#666666"]]=[[/span]] zthread_fork (self[[span style="color:#666666"]]->[[/span]]ctx, flcliapi_agent, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]flcliapi_destroy[[/span]] (flcliapi_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}flcliapi_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Connect to new server endpoint
+@@//@@{{@@  @@}}Sends @@[@@CONNECT@@][@@endpoint@@]@@ to the agent[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]flcliapi_connect[[/span]] (flcliapi_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}assert (endpoint);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (msg, [[span style="color:#BA2121"]]"CONNECT"[[/span]]);
+{{@@    @@}}zmsg_addstr (msg, endpoint);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}zclock_sleep ([[span style="color:#666666"]]100[[/span]]);{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Allow connection to come up//[[/span]]
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send & destroy request, get reply[[/span]][[/span]]
+
+zmsg_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]flcliapi_request[[/span]] (flcliapi_t [[span style="color:#666666"]]*[[/span]]self, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]request_p)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}assert ([[span style="color:#666666"]]*[[/span]]request_p);
+
+{{@@    @@}}zmsg_pushstr ([[span style="color:#666666"]]*[[/span]]request_p, [[span style="color:#BA2121"]]"REQUEST"[[/span]]);
+{{@@    @@}}zmsg_send (request_p, self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]status [[span style="color:#666666"]]=[[/span]] zmsg_popstr (reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (status, [[span style="color:#BA2121"]]"FAILED"[[/span]]))
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}free (status);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] reply;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}=====================================================================
+@@//@@{{@@  @@}}Asynchronous part, works in the background[[/span]][[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Simple class for one server we talk to[[/span]][[/span]]
+
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server identity/endpoint//[[/span]]
+{{@@    @@}}uint alive;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}1 if known to be alive//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] ping_at;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Next ping at this time//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] expires;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Expires at this time//[[/span]]
+} server_t;
+
+server_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]server_new[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint)
+{
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (server_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (server_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]endpoint [[span style="color:#666666"]]=[[/span]] strdup (endpoint);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]alive [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ping_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] PING_INTERVAL;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]expires [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] SERVER_TTL;
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]server_destroy[[/span]] (server_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]endpoint);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]server_ping[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]server, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket)
+{
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (server_t [[span style="color:#666666"]]*[[/span]]) server;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] self[[span style="color:#666666"]]->[[/span]]ping_at) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]ping [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_addstr (ping, self[[span style="color:#666666"]]->[[/span]]endpoint);
+{{@@        @@}}zmsg_addstr (ping, [[span style="color:#BA2121"]]"PING"[[/span]]);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]ping, socket);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]ping_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] PING_INTERVAL;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]server_tickless[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]server, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (server_t [[span style="color:#666666"]]*[[/span]]) server;
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] [[span style="color:#666666"]]*[[/span]]tickless [[span style="color:#666666"]]=[[/span]] ([[span style="color:#B00040"]]uint64_t[[/span]] [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]tickless [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]ping_at)
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]tickless [[span style="color:#666666"]]=[[/span]] self[[span style="color:#666666"]]->[[/span]]ping_at;
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Simple class for one background agent[[/span]][[/span]]
+
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Own context//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk back to application//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]router;{{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to servers//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]servers;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Servers we've connected to//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]actives;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Servers we know are alive//[[/span]]
+{{@@    @@}}uint sequence;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Number of requests ever sent//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current request if any//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current reply if any//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] expires;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Timeout for request/reply//[[/span]]
+} agent_t;
+
+agent_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]agent_new[[/span]] (zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (agent_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (agent_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] ctx;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]pipe [[span style="color:#666666"]]=[[/span]] pipe;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]router [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_ROUTER);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]servers [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]actives [[span style="color:#666666"]]=[[/span]] zlist_new ();
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]agent_destroy[[/span]] (agent_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]servers);
+{{@@        @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]actives);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]request);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]reply);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Callback when we remove server from agent 'servers' hash table//[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_server_free[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]argument)
+{
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]] (server_t [[span style="color:#666666"]]*[[/span]]) argument;
+{{@@    @@}}server_destroy ([[span style="color:#666666"]]&[[/span]]server);
+}
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]agent_control_message[[/span]] (agent_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]command [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"CONNECT"[[/span]])) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: connecting to %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], endpoint);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_connect (self[[span style="color:#666666"]]->[[/span]]router, endpoint);
+{{@@        @@}}assert (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}server_t [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]] server_new (endpoint);
+{{@@        @@}}zhash_insert (self[[span style="color:#666666"]]->[[/span]]servers, endpoint, server);
+{{@@        @@}}zhash_freefn (self[[span style="color:#666666"]]->[[/span]]servers, endpoint, s_server_free);
+{{@@        @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]actives, server);
+{{@@        @@}}server[[span style="color:#666666"]]->[[/span]]ping_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] PING_INTERVAL;
+{{@@        @@}}server[[span style="color:#666666"]]->[[/span]]expires [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] SERVER_TTL;
+{{@@        @@}}free (endpoint);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"REQUEST"[[/span]])) {
+{{@@        @@}}assert ([[span style="color:#666666"]]![[/span]]self[[span style="color:#666666"]]->[[/span]]request);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Strict request-reply cycle//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prefix request with sequence number and empty envelope//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] sequence_text @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@        @@}}sprintf (sequence_text, [[span style="color:#BA2121"]]"%u"[[/span]], [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}zmsg_pushstr (msg, sequence_text);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Take ownership of request message//[[/span]]
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]request [[span style="color:#666666"]]=[[/span]] msg;
+{{@@        @@}}msg [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request expires after global timeout//[[/span]]
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]expires [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] GLOBAL_TIMEOUT;
+{{@@    @@}}}
+{{@@    @@}}free (command);
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+}
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]agent_router_message[[/span]] (agent_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]router);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Frame 0 is server that replied//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint [[span style="color:#666666"]]=[[/span]] zmsg_popstr (reply);
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]]
+{{@@        @@}}(server_t [[span style="color:#666666"]]*[[/span]]) zhash_lookup (self[[span style="color:#666666"]]->[[/span]]servers, endpoint);
+{{@@    @@}}assert (server);
+{{@@    @@}}free (endpoint);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]server[[span style="color:#666666"]]->[[/span]]alive) {
+{{@@        @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]actives, server);
+{{@@        @@}}server[[span style="color:#666666"]]->[[/span]]alive [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@    @@}}}
+{{@@    @@}}server[[span style="color:#666666"]]->[[/span]]ping_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] PING_INTERVAL;
+{{@@    @@}}server[[span style="color:#666666"]]->[[/span]]expires [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] SERVER_TTL;
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Frame 1 may be sequence number for reply//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]sequence [[span style="color:#666666"]]=[[/span]] zmsg_popstr (reply);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (atoi (sequence) [[span style="color:#666666"]]==[[/span]] self[[span style="color:#666666"]]->[[/span]]sequence) {
+{{@@        @@}}zmsg_pushstr (reply, [[span style="color:#BA2121"]]"OK"[[/span]]);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]reply, self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]request);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Asynchronous agent manages server pool and handles request/reply
+@@//@@{{@@  @@}}dialog when the application asks for it.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]flcliapi_agent[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] agent_new (ctx, pipe);
+
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ self[[span style="color:#666666"]]->[[/span]]pipe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ self[[span style="color:#666666"]]->[[/span]]router, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Calculate tickless timer, up to 1 hour//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]uint64_t[[/span]] tickless [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]3600[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]request
+{{@@        @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}tickless [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]expires)
+{{@@            @@}}tickless [[span style="color:#666666"]]=[[/span]] self[[span style="color:#666666"]]->[[/span]]expires;
+{{@@        @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]servers, server_tickless, [[span style="color:#666666"]]&[[/span]]tickless);
+
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]2[[/span]],
+{{@@            @@}}(tickless [[span style="color:#666666"]]-[[/span]] zclock_time ()) [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context has been shut down//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN)
+{{@@            @@}}agent_control_message (self);
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN)
+{{@@            @@}}agent_router_message (self);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we're processing a request, dispatch to next server//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]request) {
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] self[[span style="color:#666666"]]->[[/span]]expires) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request expired, kill it//[[/span]]
+{{@@                @@}}zstr_send (self[[span style="color:#666666"]]->[[/span]]pipe, [[span style="color:#BA2121"]]"FAILED"[[/span]]);
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]request);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Find server to talk to, remove any expired ones//[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]actives)) {
+{{@@                    @@}}server_t [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]]
+{{@@                        @@}}(server_t [[span style="color:#666666"]]*[[/span]]) zlist_first (self[[span style="color:#666666"]]->[[/span]]actives);
+{{@@                    @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] server[[span style="color:#666666"]]->[[/span]]expires) {
+{{@@                        @@}}zlist_pop (self[[span style="color:#666666"]]->[[/span]]actives);
+{{@@                        @@}}server[[span style="color:#666666"]]->[[/span]]alive [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@                    @@}}}
+{{@@                    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_dup (self[[span style="color:#666666"]]->[[/span]]request);
+{{@@                        @@}}zmsg_pushstr (request, server[[span style="color:#666666"]]->[[/span]]endpoint);
+{{@@                        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]request, self[[span style="color:#666666"]]->[[/span]]router);
+{{@@                        @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@                    @@}}}
+{{@@                @@}}}
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Disconnect and delete any expired servers//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send heartbeats to idle servers if needed//[[/span]]
+{{@@        @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]servers, server_ping, self[[span style="color:#666666"]]->[[/span]]router);
+{{@@    @@}}}
+{{@@    @@}}agent_destroy ([[span style="color:#666666"]]&[[/span]]self);
+}
+[[/div]]

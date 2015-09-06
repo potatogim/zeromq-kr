@@ -1,0 +1,27 @@
+[[module css]]
+#side-bar {
+    display: block;
+}
+[[/module]]
+
+[[module NewPage button="Create page in {$category}:" category="{$category}" parent="%%fullname%%"]]
+
+[[module ListPages category="{$category}" order="name" separate="no" tags="-_deprecated" perPage="50"]]
+  [[table style="width:100%; border:1px solid silver; font-weight:bold; margin-top:-1px; background-color:#ffffff;"]]
+    [[row]]
+      [[cell style="width:58%"]] %%title_linked%% ([/{$category}:%%name%%/edit/true Edit])[[/cell]]
+      [[cell style="width:15%"]] By %%created_by%% [[/cell]]
+      [[cell style="width:15%"]] %%created_at|%Y-%b-%e%% [[/cell]]
+    [[/row]]
+  [[/table]]
+[[/module]]
+
+[[module ListPages category="{$category}" order="name" separate="no" tags="_deprecated" perPage="50"]]
+  [[table style="width:100%; border:1px solid silver; font-weight:bold; margin-top:-1px; background-color:#eeeeee;"]]
+    [[row]]
+      [[cell style="width:58%"]] %%title_linked%% ([/{$category}:%%name%%/edit/true Edit]) -- deprecated[[/cell]]
+      [[cell style="width:15%"]] By %%created_by%% [[/cell]]
+      [[cell style="width:15%"]] %%created_at|%Y-%b-%e%% [[/cell]]
+    [[/row]]
+  [[/table]]
+[[/module]]

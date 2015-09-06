@@ -1,0 +1,62 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Multithreaded relay
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"
+#include <pthread.h>[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]step1[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context) {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to step2 and tell it we're ready//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]xmitter [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PAIR);
+{{@@    @@}}zmq_connect (xmitter, [[span style="color:#BA2121"]]"inproc:@@//@@step2"[[/span]]);
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Step 1 ready, signaling step 2[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}s_send (xmitter, [[span style="color:#BA2121"]]"READY"[[/span]]);
+{{@@    @@}}zmq_close (xmitter);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]step2[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context) {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Bind inproc socket before starting step1//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PAIR);
+{{@@    @@}}zmq_bind (receiver, [[span style="color:#BA2121"]]"inproc:@@//@@step2"[[/span]]);
+{{@@    @@}}pthread_t [[span style="color:#008000"]]**thread**[[/span]];
+{{@@    @@}}pthread_create ([[span style="color:#666666"]]&[[/span]][[span style="color:#008000"]]**thread**[[/span]], [[span style="color:#008000"]]NULL[[/span]], step1, context);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for signal and pass it on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@    @@}}free (string);
+{{@@    @@}}zmq_close (receiver);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to step3 and tell it we're ready//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]xmitter [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PAIR);
+{{@@    @@}}zmq_connect (xmitter, [[span style="color:#BA2121"]]"inproc:@@//@@step3"[[/span]]);
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Step 2 ready, signaling step 3[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}s_send (xmitter, [[span style="color:#BA2121"]]"READY"[[/span]]);
+{{@@    @@}}zmq_close (xmitter);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Bind inproc socket before starting step2//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PAIR);
+{{@@    @@}}zmq_bind (receiver, [[span style="color:#BA2121"]]"inproc:@@//@@step3"[[/span]]);
+{{@@    @@}}pthread_t [[span style="color:#008000"]]**thread**[[/span]];
+{{@@    @@}}pthread_create ([[span style="color:#666666"]]&[[/span]][[span style="color:#008000"]]**thread**[[/span]], [[span style="color:#008000"]]NULL[[/span]], step2, context);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for signal//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@    @@}}free (string);
+{{@@    @@}}zmq_close (receiver);
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Test successful![[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

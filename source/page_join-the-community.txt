@@ -1,0 +1,52 @@
+[[div style="width:40%; float:left;"]]
+
+++ Shortcut: http://zero.mq
+
+**Native core API**
+
+The native core API for ØMQ is [/docs:core-api libzmq]. This is the definitive 'official' API for working with ØMQ, and is mapped into most language bindings.
+
+**Language bindings**
+
+The language bindings (mostly) wrap the native core API, adding more or less abstraction to taste:
+
+[/bindings:bash Bash] | [/bindings:c C] | [/bindings:cpp C++] | [/bindings:clr C#] | [/bindings:cl Common Lisp] | [/bindings:d D] | [/bindings:erlang Erlang] | [/bindings:go Go] | [/bindings:haskell Haskell] | [/bindings:java Java] | [/bindings:lua Lua] | [/bindings:node-js node.js] | [/bindings:perl Perl] | [/bindings:php PHP] | [/bindings:python Python] | [/bindings:twisted Python (Twisted)] | [/bindings:racket Racket] | [/bindings:ruby Ruby] | [/bindings:ruby-ffi Ruby (FFI)]| [/bindings:_start More...]
+
+**Native packages**
+
+[http://zeromqonopenvms.blogspot.com/ OpenVMS] | [http://packages.debian.org/source/sid/zeromq Debian] | [https://github.com/zeromq/pyzmq/downloads Windows (incl. PyZMQ)]
+
+**Distributions**
+
+[/distro:gentoo Gentoo] | [[[http://zeromqonopenvms.blogspot.com | OpenVMS]]]
+
+**Projects**
+
+[https://github.com/zeromq/libzmq libzmq] (bleeding edge core) | [http://czmq.zeromq.org czmq] (high-level C binding) | [https://github.com/zeromq/ztools ztools] (autobuilds) | [http://github.com/zeromq/zeromq2-1 ZeroMQ/2.1 distro] | [http://github.com/zeromq/zeromq2-2 ZeroMQ/2.2 distro]
+
+**Wiki Areas**
+
+[/whitepapers:_start Whitepapers] | [/docs:_start Documentation] | [/code:_start Example apps] | [/distro:_start Distributions] | [/story:_start Users' stories] | [/topics:_start Discussion topics] | [/results:_start Performance tests] | [/tutorials:_start Tutorials] 
+
+[[/div]]
+
+[[div style="width:55%; float:left; padding-left: 5%"]]
+[[module Join button="Join Wiki"]]
+
+**Events**
+
+[!-- Please keep in order of date and delete past events --]
+**[/event:pdxconf2012 Portland, OR, USA, Feb 25th 2012, 10:00am]** PDX ØMQ unconference
+
+**Discussion Topics**
+[!-- PH: 2011/04/27: simplify, people aren't seeing & reading these topics --]
+[[size larger]]
+[/topics:cppzmq cppzmq] | [/docs:2-1-upgrade 2.0->2.1] | [/docs:3-0-upgrade 2.1->3.0] | [/topics:project-basket Basket] | [/topics:pubsub-security Secure pubsub] | [/topics:planning Planning]
+[/topics:0mq-over-http Port80] | [/whitepapers:architecture CoreArch] | [/topics:binding-abstractions APIAbstractions] | [/topics:libzutil libzutil] | [/topics:heartbeating Heartbeating]
+[[/size]]
+
+**Recent Pages**
+[[module ListPages category="docs,area,bindings,whitepapers" limit="16" order="updated_at desc" pagetype="normal" separate="false"]]
+##black|%%updated_at|%e %B%%##: **%%linked_title%%** (%%updated_by%%)
+[[/module]]
+[[/div]]

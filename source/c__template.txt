@@ -1,0 +1,14 @@
+[[module css]]
+@import url(http://zguide.wdfiles.com/local--code/admin:css/1);
+#header h1 a,#header h1 a:hover{
+    background-image: url(http://zguide.wdfiles.com/local--files/admin:css/logo.gif);
+    background-repeat: no-repeat;
+    height: 119px;
+    width: 381px;
+    position: absolute;
+    top: 35px;
+    left : 0em;
+}
+[[/module]]
+
+%%content%%

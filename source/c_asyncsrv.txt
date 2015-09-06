@@ -1,0 +1,150 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Asynchronous client-to-server (DEALER to ROUTER)
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each task has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+
+#include "czmq.h"[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}This is our client task
+@@//@@{{@@  @@}}It connects to the server, and then sends a request once per second
+@@//@@{{@@  @@}}It collects responses as they arrive, and it prints them out. We will
+@@//@@{{@@  @@}}run several client tasks in parallel, each with a different random ID.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]client_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set random identity to make tracing easier//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] identity @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@    @@}}sprintf (identity, [[span style="color:#BA2121"]]"%04X-%04X"[[/span]], randof ([[span style="color:#666666"]]0x10000[[/span]]), randof ([[span style="color:#666666"]]0x10000[[/span]]));
+{{@@    @@}}zsockopt_set_identity (client, identity);
+{{@@    @@}}zsocket_connect (client, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5570"[[/span]]);
+
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { client, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] request_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tick once per second, pulling in arriving messages//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] centitick;
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (centitick [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; centitick [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100[[/span]]; centitick[[span style="color:#666666"]]++[[/span]]) {
+{{@@            @@}}zmq_poll (items, [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]10[[/span]] [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@                @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (client);
+{{@@                @@}}zframe_print (zmsg_last (msg), identity);
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@        @@}}zstr_sendf (client, [[span style="color:#BA2121"]]"request #%d"[[/span]], [[span style="color:#666666"]]++[[/span]]request_nbr);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}This is our server task
+@@//@@{{@@  @@}}It uses the multithreaded server model to deal requests out to a pool
+@@//@@{{@@  @@}}of workers and route replies back to clients. One worker can handle
+@@//@@{{@@  @@}}one request at a time but one client can talk to multiple workers at
+@@//@@{{@@  @@}}once.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] server_worker ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe);
+
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]][[span style="color:#0000FF"]]server_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Frontend socket talks to clients over TCP//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5570"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Backend socket talks to workers over inproc//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_bind (backend, [[span style="color:#BA2121"]]"inproc:@@//@@backend"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Launch pool of worker threads, precise number is not critical//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] thread_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (thread_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; thread_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]5[[/span]]; thread_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zthread_fork (ctx, server_worker, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect backend to frontend via a queue device//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We could do this://[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@      @@}}zmq_device (ZMQ_QUEUE, frontend, backend);//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}But doing it ourselves means we can debug this more easily//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Switch messages between frontend and backend//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (frontend);
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@puts ("Request from client:");//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@zmsg_dump (msg);//[[/span]]
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, backend);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (backend);
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@puts ("Reply from worker:");//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@zmsg_dump (msg);//[[/span]]
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, frontend);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Accept a request and reply with the same text a random number of
+@@//@@{{@@  @@}}times, with random delays between replies.
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]server_worker[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"inproc:@@//@@backend"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}The DEALER socket gives us the address envelope and message//[[/span]]
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]content [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@        @@}}assert (content);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send 0..4 replies back//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] reply, replies [[span style="color:#666666"]]=[[/span]] randof ([[span style="color:#666666"]]5[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; reply [[span style="color:#666666"]]<[[/span]] replies; reply[[span style="color:#666666"]]++[[/span]]) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Sleep for some fraction of a second//[[/span]]
+{{@@            @@}}zclock_sleep (randof ([[span style="color:#666666"]]1000[[/span]]) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]address, worker, ZFRAME_REUSE [[span style="color:#666666"]]+[[/span]] ZFRAME_MORE);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]content, worker, ZFRAME_REUSE);
+{{@@        @@}}}
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]address);
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]content);
+{{@@    @@}}}
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}This main thread simply starts several clients, and a server, and then
+@@//@@{{@@  @@}}waits for the server to finish.
+@@//@@[[/span]][[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}zthread_new (client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (server_task, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Run for 5 seconds then quit//[[/span]]
+{{@@    @@}}zclock_sleep ([[span style="color:#666666"]]5[[/span]] [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]1000[[/span]]);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

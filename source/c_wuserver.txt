@@ -1,0 +1,35 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Weather update server
+@@//@@{{@@  @@}}Binds PUB socket to tcp:@@//@@*:5556
+@@//@@{{@@  @@}}Publishes random weather updates
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and publisher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);
+{{@@    @@}}zmq_bind (publisher, [[span style="color:#BA2121"]]"ipc:@@//@@weather.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize random number generator//[[/span]]
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get values that will fool the boss//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] zipcode, temperature, relhumidity;
+{{@@        @@}}zipcode{{@@     @@}}[[span style="color:#666666"]]=[[/span]] randof ([[span style="color:#666666"]]100000[[/span]]);
+{{@@        @@}}temperature [[span style="color:#666666"]]=[[/span]] randof ([[span style="color:#666666"]]215[[/span]]) [[span style="color:#666666"]]-[[/span]] [[span style="color:#666666"]]80[[/span]];
+{{@@        @@}}relhumidity [[span style="color:#666666"]]=[[/span]] randof ([[span style="color:#666666"]]50[[/span]]) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]10[[/span]];
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send message to all subscribers//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] update @@[@@[[span style="color:#666666"]]20[[/span]]@@]@@;
+{{@@        @@}}sprintf (update, [[span style="color:#BA2121"]]"%05d %d %d"[[/span]], zipcode, temperature, relhumidity);
+{{@@        @@}}s_send (publisher, update);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (publisher);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

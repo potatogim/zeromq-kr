@@ -1,0 +1,30 @@
+[[div class="code"]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_thread[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg) {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] arg;
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REP);
+{{@@    @@}}assert (worker);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] rc;
+{{@@    @@}}rc [[span style="color:#666666"]]=[[/span]] zmq_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@worker"[[/span]]);
+{{@@    @@}}assert (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]broadcast [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}assert (broadcast);
+{{@@    @@}}rc [[span style="color:#666666"]]=[[/span]] zmq_bind (broadcast, [[span style="color:#BA2121"]]"ipc:@@//@@publish"[[/span]]);
+{{@@    @@}}assert (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]part1 [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]part2 [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Worker got @@[@@%s@@][@@%s@@]@@[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], part1, part2);
+{{@@        @@}}s_sendmore (broadcast, [[span style="color:#BA2121"]]"msg"[[/span]]);
+{{@@        @@}}s_sendmore (broadcast, part1);
+{{@@        @@}}s_send{{@@     @@}}(broadcast, part2);
+{{@@        @@}}free (part1);
+{{@@        @@}}free (part2);
+
+{{@@        @@}}s_send (worker, [[span style="color:#BA2121"]]"OK"[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+[[/div]]

@@ -1,0 +1,117 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Round-trip demonstrator
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Client thread signals to
+@@//@@{{@@  @@}}main when it's ready.
+@@//@@
+#include "czmq.h"[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]client_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zmq_setsockopt (client, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"C"[[/span]], [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zsocket_connect (client, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]]);
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Setting up test...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}zclock_sleep ([[span style="color:#666666"]]100[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] requests;
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] start;
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Synchronous round-trip test...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}start [[span style="color:#666666"]]=[[/span]] zclock_time ();
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (requests [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; requests [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]10000[[/span]]; requests[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}zstr_send (client, [[span style="color:#BA2121"]]"hello"[[/span]]);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@        @@}}free (reply);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]" %d calls/second[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@        @@}}([[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]10000[[/span]]) [[span style="color:#666666"]]/[[/span]] ([[span style="color:#B00040"]]int[[/span]]) (zclock_time () [[span style="color:#666666"]]-[[/span]] start));
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Asynchronous round-trip test...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}start [[span style="color:#666666"]]=[[/span]] zclock_time ();
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (requests [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; requests [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100000[[/span]]; requests[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zstr_send (client, [[span style="color:#BA2121"]]"hello"[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (requests [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; requests [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100000[[/span]]; requests[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@        @@}}free (reply);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]" %d calls/second[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@        @@}}([[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]100000[[/span]]) [[span style="color:#666666"]]/[[/span]] ([[span style="color:#B00040"]]int[[/span]]) (zclock_time () [[span style="color:#666666"]]-[[/span]] start));
+
+{{@@    @@}}zstr_send (pipe, [[span style="color:#BA2121"]]"done"[[/span]]);
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zmq_setsockopt (worker, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"W"[[/span]], [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, worker);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]broker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+{{@@    @@}}zsocket_bind (backend,{{@@  @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize poll set//[[/span]]
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (frontend);
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]address);
+{{@@            @@}}zmsg_pushstr (msg, [[span style="color:#BA2121"]]"W"[[/span]]);
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, backend);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (backend);
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]address);
+{{@@            @@}}zmsg_pushstr (msg, [[span style="color:#BA2121"]]"C"[[/span]]);
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, frontend);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create threads//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zthread_fork (ctx, client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (worker_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (broker_task, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for signal on client pipe//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]signal [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@    @@}}free (signal);
+
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

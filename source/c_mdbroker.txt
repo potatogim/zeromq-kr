@@ -1,0 +1,497 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Majordomo Protocol broker
+@@//@@{{@@  @@}}A minimal implementation of http:@@//@@rfc.zeromq.org/spec:7 and spec:8
+@@//@@
+#include "czmq.h"
+#include "mdp.h"
+
+@@//@@{{@@  @@}}We'd normally pull these from config data
+
+#define HEARTBEAT_LIVENESS{{@@  @@}}3{{@@       @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}3-5 is reasonable//[[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT_INTERVAL{{@@  @@}}2500{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT_EXPIRY{{@@    @@}}HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This defines a single broker//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our context//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket;{{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket for clients & workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Print activity to stdout//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Broker binds to this endpoint//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]services;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Hash of known services//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]workers;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Hash of known workers//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]waiting;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}List of waiting workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] heartbeat_at;{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When to send HEARTBEAT//[[/span]]
+} broker_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This defines a single service//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]name;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Service name//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]requests;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}List of client requests//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]waiting;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}List of waiting workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] workers;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many workers we have//[[/span]]
+} service_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This defines one worker, idle or active//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]identity;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Identity of worker//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Address frame to route to//[[/span]]
+{{@@    @@}}service_t [[span style="color:#666666"]]*[[/span]]service;{{@@         @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Owning service, if known//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] expiry;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Expires at unless heartbeat//[[/span]]
+} worker_t;
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Broker functions[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] broker_t [[span style="color:#666666"]]*[[/span]]
+{{@@    @@}}s_broker_new ([[span style="color:#B00040"]]int[[/span]] verbose);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_broker_destroy (broker_t [[span style="color:#666666"]]@@**@@[[/span]]self_p);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_broker_bind (broker_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_broker_purge_workers (broker_t [[span style="color:#666666"]]*[[/span]]self);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Service functions//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] service_t [[span style="color:#666666"]]*[[/span]]
+{{@@    @@}}s_service_require (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]service_frame);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_service_destroy ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]argument);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_service_dispatch (broker_t [[span style="color:#666666"]]*[[/span]]self, service_t [[span style="color:#666666"]]*[[/span]]service, zmsg_t [[span style="color:#666666"]]*[[/span]]msg);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_service_internal (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]service_frame, zmsg_t [[span style="color:#666666"]]*[[/span]]msg);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Worker functions//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] worker_t [[span style="color:#666666"]]*[[/span]]
+{{@@    @@}}s_worker_require (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]address);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_worker_delete (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker, [[span style="color:#B00040"]]int[[/span]] disconnect);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_worker_destroy ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]argument);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_worker_process (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]sender, zmsg_t [[span style="color:#666666"]]*[[/span]]msg);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_worker_send (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]command,
+{{@@                   @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]option, zmsg_t [[span style="color:#666666"]]*[[/span]]msg);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_worker_waiting (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Client functions//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}s_client_process (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]sender, zmsg_t [[span style="color:#666666"]]*[[/span]]msg);
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Main broker work happens here[[/span]][[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+
+{{@@    @@}}broker_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] s_broker_new (verbose);
+{{@@    @@}}s_broker_bind (self, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get and process messages forever or until interrupted//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ self[[span style="color:#666666"]]->[[/span]]socket,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], HEARTBEAT_INTERVAL [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process next input message, if any//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]socket);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose) {
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"I: received message:"[[/span]]);
+{{@@                @@}}zmsg_dump (msg);
+{{@@            @@}}}
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]sender [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]empty{{@@  @@}}[[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]header [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (header, MDPC_CLIENT))
+{{@@                @@}}s_client_process (self, sender, msg);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (header, MDPW_WORKER))
+{{@@                @@}}s_worker_process (self, sender, msg);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"E: invalid message:"[[/span]]);
+{{@@                @@}}zmsg_dump (msg);
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}}
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]sender);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]empty);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]header);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Disconnect and delete any expired workers//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send heartbeats to idle workers if needed//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]heartbeat_at) {
+{{@@            @@}}s_broker_purge_workers (self);
+{{@@            @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (self[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@            @@}}[[span style="color:#008000"]]**while**[[/span]] (worker) {
+{{@@                @@}}s_worker_send (self, worker, MDPW_HEARTBEAT, [[span style="color:#008000"]]NULL[[/span]], [[span style="color:#008000"]]NULL[[/span]]);
+{{@@                @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_next (self[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@            @@}}}
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"W: interrupt received, shutting down...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}s_broker_destroy ([[span style="color:#666666"]]&[[/span]]self);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor for broker object[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] broker_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_broker_new[[/span]] ([[span style="color:#B00040"]]int[[/span]] verbose)
+{
+{{@@    @@}}broker_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (broker_t));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize broker state//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]socket [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_ROUTER);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]verbose [[span style="color:#666666"]]=[[/span]] verbose;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]services [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]workers [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]waiting [[span style="color:#666666"]]=[[/span]] zlist_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor for broker object[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_broker_destroy[[/span]] (broker_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}broker_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]services);
+{{@@        @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]workers);
+{{@@        @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Bind broker to endpoint, can call this multiple times
+@@//@@{{@@  @@}}We use a single socket for both clients and workers.[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_broker_bind[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint)
+{
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]socket, endpoint);
+{{@@    @@}}zclock_log ([[span style="color:#BA2121"]]"I: MDP broker/0.1.1 is active at %s"[[/span]], endpoint);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Delete any idle workers that haven't pinged us in a while.
+@@//@@{{@@  @@}}We know that workers are ordered from oldest to most recent.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_broker_purge_workers[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (self[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (worker) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]<[[/span]] worker[[span style="color:#666666"]]->[[/span]]expiry)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@                  @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Worker is alive, we're done here//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose)
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: deleting expired worker: %s"[[/span]],
+{{@@                @@}}worker[[span style="color:#666666"]]->[[/span]]identity);
+
+{{@@        @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (self[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Locate or create new service entry[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] service_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_service_require[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]service_frame)
+{
+{{@@    @@}}assert (service_frame);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]name [[span style="color:#666666"]]=[[/span]] zframe_strdup (service_frame);
+
+{{@@    @@}}service_t [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]]
+{{@@        @@}}(service_t [[span style="color:#666666"]]*[[/span]]) zhash_lookup (self[[span style="color:#666666"]]->[[/span]]services, name);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (service [[span style="color:#666666"]]==[[/span]] [[span style="color:#008000"]]NULL[[/span]]) {
+{{@@        @@}}service [[span style="color:#666666"]]=[[/span]] (service_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (service_t));
+{{@@        @@}}service[[span style="color:#666666"]]->[[/span]]name [[span style="color:#666666"]]=[[/span]] name;
+{{@@        @@}}service[[span style="color:#666666"]]->[[/span]]requests [[span style="color:#666666"]]=[[/span]] zlist_new ();
+{{@@        @@}}service[[span style="color:#666666"]]->[[/span]]waiting [[span style="color:#666666"]]=[[/span]] zlist_new ();
+{{@@        @@}}zhash_insert (self[[span style="color:#666666"]]->[[/span]]services, name, service);
+{{@@        @@}}zhash_freefn (self[[span style="color:#666666"]]->[[/span]]services, name, s_service_destroy);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose)
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: added service: %s"[[/span]], name);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}free (name);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] service;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destroy service object, called when service is removed from
+@@//@@{{@@  @@}}broker->services.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_service_destroy[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]argument)
+{
+{{@@    @@}}service_t [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]] (service_t [[span style="color:#666666"]]*[[/span]]) argument;
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy all queued requests//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (service[[span style="color:#666666"]]->[[/span]]requests)) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zlist_pop (service[[span style="color:#666666"]]->[[/span]]requests);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]service[[span style="color:#666666"]]->[[/span]]requests);
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]service[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@    @@}}free (service[[span style="color:#666666"]]->[[/span]]name);
+{{@@    @@}}free (service);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Dispatch requests to waiting workers as possible[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_service_dispatch[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, service_t [[span style="color:#666666"]]*[[/span]]service, zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}assert (service);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (msg){{@@                    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue message if any//[[/span]]
+{{@@        @@}}zlist_append (service[[span style="color:#666666"]]->[[/span]]requests, msg);
+
+{{@@    @@}}s_broker_purge_workers (self);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (service[[span style="color:#666666"]]->[[/span]]waiting)
+{{@@        @@}}[[span style="color:#666666"]]&&[[/span]] zlist_size (service[[span style="color:#666666"]]->[[/span]]requests))
+{{@@    @@}}{
+{{@@        @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zlist_pop (service[[span style="color:#666666"]]->[[/span]]waiting);
+{{@@        @@}}zlist_remove (self[[span style="color:#666666"]]->[[/span]]waiting, worker);
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zlist_pop (service[[span style="color:#666666"]]->[[/span]]requests);
+{{@@        @@}}s_worker_send (self, worker, MDPW_REQUEST, [[span style="color:#008000"]]NULL[[/span]], msg);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Handle internal service according to 8/MMI specification[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_service_internal[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]service_frame, zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]return_code;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (service_frame, [[span style="color:#BA2121"]]"mmi.service"[[/span]])) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]name [[span style="color:#666666"]]=[[/span]] zframe_strdup (zmsg_last (msg));
+{{@@        @@}}service_t [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]]
+{{@@            @@}}(service_t [[span style="color:#666666"]]*[[/span]]) zhash_lookup (self[[span style="color:#666666"]]->[[/span]]services, name);
+{{@@        @@}}return_code [[span style="color:#666666"]]=[[/span]] service [[span style="color:#666666"]]&&[[/span]] service[[span style="color:#666666"]]->[[/span]]workers[[span style="color:#666666"]]?[[/span]] [[span style="color:#BA2121"]]"200"[[/span]][[span style="color:#666666"]]:[[/span]] [[span style="color:#BA2121"]]"404"[[/span]];
+{{@@        @@}}free (name);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}return_code [[span style="color:#666666"]]=[[/span]] [[span style="color:#BA2121"]]"501"[[/span]];
+
+{{@@    @@}}zframe_reset (zmsg_last (msg), return_code, strlen (return_code));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Remove & save client return envelope and insert the//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}protocol header and service name, then rewrap envelope.//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@    @@}}zmsg_push (msg, zframe_dup (service_frame));
+{{@@    @@}}zmsg_pushstr (msg, MDPC_CLIENT);
+{{@@    @@}}zmsg_wrap (msg, client);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]socket);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Creates worker if necessary[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] worker_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_worker_require[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]address)
+{
+{{@@    @@}}assert (address);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}self->workers is keyed off worker identity//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_strhex (address);
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]]
+{{@@        @@}}(worker_t [[span style="color:#666666"]]*[[/span]]) zhash_lookup (self[[span style="color:#666666"]]->[[/span]]workers, identity);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (worker [[span style="color:#666666"]]==[[/span]] [[span style="color:#008000"]]NULL[[/span]]) {
+{{@@        @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (worker_t));
+{{@@        @@}}worker[[span style="color:#666666"]]->[[/span]]identity [[span style="color:#666666"]]=[[/span]] identity;
+{{@@        @@}}worker[[span style="color:#666666"]]->[[/span]]address [[span style="color:#666666"]]=[[/span]] zframe_dup (address);
+{{@@        @@}}zhash_insert (self[[span style="color:#666666"]]->[[/span]]workers, identity, worker);
+{{@@        @@}}zhash_freefn (self[[span style="color:#666666"]]->[[/span]]workers, identity, s_worker_destroy);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose)
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: registering new worker: %s"[[/span]], identity);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}free (identity);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] worker;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Deletes worker from all data structures, and destroys worker[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_delete[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker, [[span style="color:#B00040"]]int[[/span]] disconnect)
+{
+{{@@    @@}}assert (worker);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (disconnect)
+{{@@        @@}}s_worker_send (self, worker, MDPW_DISCONNECT, [[span style="color:#008000"]]NULL[[/span]], [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (worker[[span style="color:#666666"]]->[[/span]]service) {
+{{@@        @@}}zlist_remove (worker[[span style="color:#666666"]]->[[/span]]service[[span style="color:#666666"]]->[[/span]]waiting, worker);
+{{@@        @@}}worker[[span style="color:#666666"]]->[[/span]]service[[span style="color:#666666"]]->[[/span]]workers[[span style="color:#666666"]]@@--@@[[/span]];
+{{@@    @@}}}
+{{@@    @@}}zlist_remove (self[[span style="color:#666666"]]->[[/span]]waiting, worker);
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}This implicitly calls s_worker_destroy//[[/span]]
+{{@@    @@}}zhash_delete (self[[span style="color:#666666"]]->[[/span]]workers, worker[[span style="color:#666666"]]->[[/span]]identity);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destroy worker object, called when worker is removed from
+@@//@@{{@@  @@}}broker->workers.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_destroy[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]argument)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) argument;
+{{@@    @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]worker[[span style="color:#666666"]]->[[/span]]address);
+{{@@    @@}}free (worker[[span style="color:#666666"]]->[[/span]]identity);
+{{@@    @@}}free (worker);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Process message sent to us by a worker[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_process[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]sender, zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}assert (zmsg_size (msg) [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]1[[/span]]);{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}At least, command//[[/span]]
+
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]command [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_strhex (sender);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] worker_ready [[span style="color:#666666"]]=[[/span]] (zhash_lookup (self[[span style="color:#666666"]]->[[/span]]workers, identity) [[span style="color:#666666"]]!=[[/span]] [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}free (identity);
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] s_worker_require (self, sender);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_READY)) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (worker_ready){{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Not first command in session//[[/span]]
+{{@@            @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_size (sender) [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]4[[/span]]{{@@  @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Reserved service name//[[/span]]
+{{@@        @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (zframe_data (sender), [[span style="color:#BA2121"]]"mmi."[[/span]], [[span style="color:#666666"]]4[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@            @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Attach worker to service and mark as idle//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]service_frame [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}worker[[span style="color:#666666"]]->[[/span]]service [[span style="color:#666666"]]=[[/span]] s_service_require (self, service_frame);
+{{@@            @@}}worker[[span style="color:#666666"]]->[[/span]]service[[span style="color:#666666"]]->[[/span]]workers[[span style="color:#666666"]]++[[/span]];
+{{@@            @@}}s_worker_waiting (self, worker);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]service_frame);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_REPLY)) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (worker_ready) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Remove & save client return envelope and insert the//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}protocol header and service name, then rewrap envelope.//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@            @@}}zmsg_pushstr (msg, worker[[span style="color:#666666"]]->[[/span]]service[[span style="color:#666666"]]->[[/span]]name);
+{{@@            @@}}zmsg_pushstr (msg, MDPC_CLIENT);
+{{@@            @@}}zmsg_wrap (msg, client);
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]socket);
+{{@@            @@}}s_worker_waiting (self, worker);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_HEARTBEAT)) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (worker_ready)
+{{@@            @@}}worker[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_EXPIRY;
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_DISCONNECT))
+{{@@        @@}}s_worker_delete (self, worker, [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"E: invalid input message"[[/span]]);
+{{@@        @@}}zmsg_dump (msg);
+{{@@    @@}}}
+{{@@    @@}}free (command);
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send message to worker
+@@//@@{{@@  @@}}If pointer to message is provided, sends that message. Does not
+@@//@@{{@@  @@}}destroy the message, this is the caller's job.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_send[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]command,
+{{@@               @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]option, zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}msg [[span style="color:#666666"]]=[[/span]] msg[[span style="color:#666666"]]?[[/span]] zmsg_dup (msg)[[span style="color:#666666"]]:[[/span]] zmsg_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Stack protocol envelope to start of message//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (option)
+{{@@        @@}}zmsg_pushstr (msg, option);
+{{@@    @@}}zmsg_pushstr (msg, command);
+{{@@    @@}}zmsg_pushstr (msg, MDPW_WORKER);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Stack routing envelope to start of message//[[/span]]
+{{@@    @@}}zmsg_wrap (msg, zframe_dup (worker[[span style="color:#666666"]]->[[/span]]address));
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose) {
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: sending %s to worker"[[/span]],
+{{@@            @@}}mdps_commands @@[@@([[span style="color:#B00040"]]int[[/span]]) [[span style="color:#666666"]]*[[/span]]command@@]@@);
+{{@@        @@}}zmsg_dump (msg);
+{{@@    @@}}}
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]socket);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}This worker is now waiting for work[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_waiting[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, worker_t [[span style="color:#666666"]]*[[/span]]worker)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue to broker and service waiting lists//[[/span]]
+{{@@    @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]waiting, worker);
+{{@@    @@}}zlist_append (worker[[span style="color:#666666"]]->[[/span]]service[[span style="color:#666666"]]->[[/span]]waiting, worker);
+{{@@    @@}}worker[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_EXPIRY;
+{{@@    @@}}s_service_dispatch (self, worker[[span style="color:#666666"]]->[[/span]]service, [[span style="color:#008000"]]NULL[[/span]]);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Process a request coming from a client[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_client_process[[/span]] (broker_t [[span style="color:#666666"]]*[[/span]]self, zframe_t [[span style="color:#666666"]]*[[/span]]sender, zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}assert (zmsg_size (msg) [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]2[[/span]]);{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Service name + body//[[/span]]
+
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]service_frame [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@    @@}}service_t [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]] s_service_require (self, service_frame);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set reply return address to client sender//[[/span]]
+{{@@    @@}}zmsg_wrap (msg, zframe_dup (sender));
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_size (service_frame) [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]4[[/span]]
+{{@@    @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (zframe_data (service_frame), [[span style="color:#BA2121"]]"mmi."[[/span]], [[span style="color:#666666"]]4[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@        @@}}s_service_internal (self, service_frame, msg);
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}s_service_dispatch (self, service, msg);
+{{@@    @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]service_frame);
+}
+[[/div]]

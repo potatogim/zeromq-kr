@@ -1,0 +1,42 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Task sink
+@@//@@{{@@  @@}}Binds PULL socket to tcp:@@//@@localhost:5558
+@@//@@{{@@  @@}}Collects results from workers via that socket
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and socket//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_bind (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@*:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for start of batch//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@    @@}}free (string);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start our clock now//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] start_time [[span style="color:#666666"]]=[[/span]] s_clock ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process 100 confirmations//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] task_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (task_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; task_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100[[/span]]; task_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@        @@}}free (string);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ((task_nbr [[span style="color:#666666"]]/[[/span]] [[span style="color:#666666"]]10[[/span]]) [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]10[[/span]] [[span style="color:#666666"]]==[[/span]] task_nbr)
+{{@@            @@}}printf ([[span style="color:#BA2121"]]":"[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"."[[/span]]);
+{{@@        @@}}fflush (stdout);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Calculate and report duration of batch//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Total elapsed time: %d msec[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], 
+{{@@        @@}}([[span style="color:#B00040"]]int[[/span]]) (s_clock () [[span style="color:#666666"]]-[[/span]] start_time));
+
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

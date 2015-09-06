@@ -1,0 +1,42 @@
+[[size larger]]**##red|ØMQ##**[[/size]]  \zeromq\:
+   ##red|Ø## Concurrency Framework로써 수행가능한 소켓 라이브러리 
+  ##red|Ø## 클러스터 및 슈퍼 컴퓨팅 환경에서 TCP보다 성능 우수  
+   ##red|Ø## 다양한 메시시 처리 방식 제공(inproc, IPC, TCP, Multicast) 
+   ##red|Ø## N:N처리(fanout, pubsub, pipeline, request-reply)
+   ##red|Ø## 확장 multicore 메시지 전달 어플리케이션을 위한 비동기 I/O 
+   ##red|Ø## 크고 활발한 오픈소스 커뮤니티 
+   ##red|Ø## Language : C, C++, .NET, Python을 포함한 20가지 이상 지원
+   ##red|Ø## OS : Linux, Windows, OS X등 대부분의 OS 지원 
+   ##red|Ø## iMatix의 전체 상업 지원 LGPL 오픈소스 
+
+ 
+ 
+
+[[div style="overflow:hidden"]]
+[[div style="float:left; width:35%;height:100px; margin-left:1.5%; text-align:center"]]
+[[span style="font-size:200%"]][/page:read-the-manual 자세히 알아보기][[/span]]
+[[span style="font-size:120%"]]##red|기본사항##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:28%;height:100px;  margin-left:3%; text-align:center"]]
+[[span style="font-size:200%"]][/page:get-the-software 가져오기][[/span]]
+[[span style="font-size:120%"]]##red|소프트웨어##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:27%;height:100px;  margin-left:3%; text-align:center"]]
+[[span style="font-size:200%"]][/page:ask-for-help 해결][[/span]]
+[[span style="font-size:120%"]]##red|문제##[[/span]]
+[[/div]]
+
+
+[[div style="float:left; width:35%;height:100px; margin-left:3%; text-align:center"]]
+[[span style="font-size:200%"]][/community 회원가입][[/span]]
+[[span style="font-size:120%"]]##red|커뮤니티##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:28%;height:100px; margin-left:3%; text-align:center"]]
+[[span style="font-size:200%"]][/page:commercial-support 구매][[/span]]
+[[span style="font-size:120%"]]##red|지원##[[/span]]
+[[/div]]
+
+[[/div]]

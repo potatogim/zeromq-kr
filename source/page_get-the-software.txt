@@ -1,0 +1,61 @@
+[http://www.zeromq.org/intro:what-people-say 사람들이 말하는 ØMQ...]
+
+ØMQ는 오픈소스 입니다.[http://www.zeromq.org/area:licensing (라이선스 - LGPLv3+)]. 이 페이지는 기본 공식 배포판과 발표, 그리고 iMatrix지원에 대해 서술합니다.
+[/community community wiki]는 다른 패키지를 제공할 수 있습니다. [http://www.zeromq.org/topics:planning 여러분이 사용할 수 있는 버전]을 봅시다.
+
+
+++ Stable release 2.1
+
+최신 2.1의 안정적인 배포판은 2011년 12월 18일, v2.1.11 입니다. [http://github.com/zeromq/zeromq2-1/raw/master/NEWS (변경및 새로운 기능)]
+
+* [http://download.zeromq.org/zeromq-2.1.11.tar.gz POSIX tarball ] |     [http://download.zeromq.org/zeromq-2.1.11.zip Windows sources] |  [https://github.com/zeromq/zeromq2-1/commits/v2.1.11 git repo] |  [https://github.com/zeromq/zeromq2-1 git master]
+ØMQ/2.1은 2.0에서 업그레이드하는것을 추천합니다. [http://www.zeromq.org/docs:2-1-upgrade 2.1 업그레이드에 대한 도움.]
+
+
+++ Beta release 3.1
+
+최신 3.1의 배포판은 2011년 12월 18일, v3.1.0-beta 입니다. [http://github.com/zeromq/libzmq/raw/master/NEWS (변경및 새로운 기능)]
+
+* [http://download.zeromq.org/zeromq-3.1.0-beta.tar.gz POSIX tarball] | [http://download.zeromq.org/zeromq-3.1.0-beta.zip Windows zipfile] | [https://github.com/zeromq/libzmq/commits/v3.1.0 git repo] | [https://github.com/zeromq/libzmq git master]
+
+ØMQ/3.1은 좀더 빠른 대량 pubsub 구조로 되어 있습니다.핵심API는 2.1과 호환되지 않습니다.
+
+
+++ Previous releases
+
+지금까지의 모든 이전버전은 [http://download.zeromq.org/ download.zeromq.org]에 있습니다. 
+MD5와 release tarballs의 SHA-1 checksums는 또한 위의 위치에서 찾을 수 있습니다.
+
+
+++ Unix시스템과 같은 시스템에서 빌드하기
+여러분이 선택하는 ØMQ 개발을 위한 가장 편안한 OS는 아마도 Ubuntu일 것입니다.
+
+# {{libtool}}, {{autoconf}}, {{automake}}가 설치되어 있는지 확인하세요
+# {{uuid-dev}} 패키지, {{uuid}}/{{e2fsprogs}} RPM이나 이것과 동등한 것이 시스템에 설치되어 있는지 확인 합니다.
+# .tar.gz 소스아키이브를 풀고
+# {{make}} 명령에 의해 {{./configure}}를 실행합니다.
+# ØMQ시스템 전체를 설치하기 위해서 {{sudo make install}}을 실행합니다.
+# 리눅스에서 ØMQ를 설치한 후 {{sudo ldconfig}}를 실행합니다.
+
+구성 옵션을 보기 위해서 {{./configure --help}}를 실행합니다. 더 자세한 내용은 {{INSTALL}}을 참고하세요
+
+
+++ 윈도우에서 빌드하기
+
+# Microsoft [http://www.microsoft.com/express/Downloads/#2010-Visual-CPP Visual C++ 2008] 이나 상위버전이 필요합니다.
+# .zip 소스 아키이브를 풀고
+# Visual C++에서 {{builds\msvc\msvc.sln}}을 오픈합니다.
+# 빌드 합니다.
+# ØMQ라이브러리는 {{lib}}폴더에 있습니다.
+
+
+++ 사용 언어
+
+기본적으로 **[http://www.zeromq.org/bindings:c C]**와 **[http://www.zeromq.org/bindings:cpp C++]**을 제공하며, 또한 **[http://www.zeromq.org/bindings:python Python]**, **[http://www.zeromq.org/bindings:java Java]**, **[http://www.zeromq.org/bindings:php PHP]**, **[http://www.zeromq.org/bindings:ruby Ruby]**, **[http://www.zeromq.org/bindings:clr C#]**, **[http://www.zeromq.org/bindings:erlang Erlang]**, **[http://www.zeromq.org/bindings:perl Perl]** 등으로 ØMQ을 사용할 수 있습니다.
+
+상세 제공 언어 리스트는 [http://www.zeromq.org/bindings:_start 여기]에 있습니다.
+
+
+++ ØMQ 튜닝
+
+[http://www.zeromq.org/docs:tuning-zeromq wiki page]는 ØMQ 튜닝 팁을 다루고 있습니다. 또한 여러분이 발견한 팁을 추가할 수 있습니다.

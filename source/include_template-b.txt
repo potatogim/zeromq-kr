@@ -1,0 +1,24 @@
+[[/div]]
+
+[[div class="right-bar"]]
+//Written: %%created_at|%Y.%m.%e%%//
+//Revised: %%updated_at|%Y.%m.%e%%//
+
+If you found this page useful, please rate it up so others will find it.
+[[module Rate]]
+
+[[button edit text="Edit this page"]] | [[button tags text="Tags"]] | [[button print text="Print"]]
+
++++ See also
+
+[[module ListPages order="title" separate="no" range="others" perPage="100" limit="5000"]]
+* %%linked_title%% [[image http://community.wikidot.com/local--files/nav:side/accessories-text-editor-32x32.png link="*/%%fullname%%/edit/true/norender/true/noredirect/true"]]
+[[/module]]
+
+[[[%%category%%:_start|Show summary of %%category%% category]]]
+
++++ Who's watching this page?
+
+[[module Watchers]]
+[[/div]]
+[[/div]]

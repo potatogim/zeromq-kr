@@ -1,0 +1,25 @@
+[[module CSS]]
+@import url(http://zguide.wdfiles.com/local--code/admin:css/1);
+#header h1 a,#header h1 a:hover{
+    background-image: url(http://zguide.wdfiles.com/local--files/admin:css/logo.gif);
+    background-repeat: no-repeat;
+    height: 119px;
+    width: 381px;
+    position: absolute;
+    top: 35px;
+    left : 0em;
+}
+.foldedtoc #toc #toc-action-bar { display: none }
+.foldedtoc #toc .title { display: none; border: 0px solid black; }
+.foldedtoc #toc { border: 0px solid black; margin: 0 0 0 -0,9em; }
+.foldedtoc .collapsible-block-link { text-decoration:none }
+[[/module]]
+[[include include:print-css]]
+[[# top]]
+[[div class="foldedtoc" style="border:1px black dashed;float:left;margin:10px"]]
+[[collapsible show="Table of Contents" hide="Table of Contents"]]
+[[toc]]
+[[/collapsible]]
+[[/div]]
+~~~~
+%%content%%

@@ -1,0 +1,152 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Least-recently used (LRU) queue device
+@@//@@{{@@  @@}}Demonstrates use of the libczmq API and reactor style
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each thread has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+@@//@@
+#include "czmq.h"
+
+#define NBR_CLIENTS 10
+#define NBR_WORKERS 3
+#define LRU_READY{{@@   @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Basic request-reply client using REQ socket
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]client_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (client, [[span style="color:#BA2121"]]"ipc:@@//@@frontend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send request, get reply//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zstr_send (client, [[span style="color:#BA2121"]]"HELLO"[[/span]]);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]reply)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Client: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply);
+{{@@        @@}}free (reply);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Worker using REQ socket to do LRU routing
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg_ptr)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@backend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell broker we're ready for work//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (LRU_READY, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, worker, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages as they arrive//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@zframe_print (zmsg_last (msg), "Worker: ");//[[/span]]
+{{@@        @@}}zframe_reset (zmsg_last (msg), [[span style="color:#BA2121"]]"OK"[[/span]], [[span style="color:#666666"]]2[[/span]]);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, worker);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our LRU queue structure, passed to reactor handlers//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Listen to clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Listen to workers//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]workers;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}List of ready workers//[[/span]]
+} lruqueue_t;
+
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle input from client, on frontend//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_handle_frontend[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}lruqueue_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (lruqueue_t [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]frontend);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (msg) {
+{{@@        @@}}zmsg_wrap (msg, (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (self[[span style="color:#666666"]]->[[/span]]workers));
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]backend);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Cancel reader on frontend if we went from 1 to 0 workers//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]workers) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@            @@}}zloop_poller_end (loop, [[span style="color:#666666"]]&[[/span]]poller);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle input from worker, on backend//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_handle_backend[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Use worker address for LRU routing//[[/span]]
+{{@@    @@}}lruqueue_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (lruqueue_t [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]backend);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (msg) {
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@        @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]workers, address);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Enable reader on frontend if we went from 0 to 1 workers//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]workers) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@            @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@            @@}}zloop_poller (loop, [[span style="color:#666666"]]&[[/span]]poller, s_handle_frontend, self);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Forward message to client if it's not a READY//[[/span]]
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zmsg_first (msg);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (zframe_data (frame), LRU_READY, [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]frontend);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}lruqueue_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (lruqueue_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (lruqueue_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]backend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]frontend, [[span style="color:#BA2121"]]"ipc:@@//@@frontend.ipc"[[/span]]);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]backend, [[span style="color:#BA2121"]]"ipc:@@//@@backend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] client_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (client_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; client_nbr [[span style="color:#666666"]]<[[/span]] NBR_CLIENTS; client_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zthread_new (client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] worker_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (worker_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; worker_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS; worker_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zthread_new (worker_task, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue of available workers//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]workers [[span style="color:#666666"]]=[[/span]] zlist_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare reactor and fire it up//[[/span]]
+{{@@    @@}}zloop_t [[span style="color:#666666"]]*[[/span]]reactor [[span style="color:#666666"]]=[[/span]] zloop_new ();
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]backend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller (reactor, [[span style="color:#666666"]]&[[/span]]poller, s_handle_backend, self);
+{{@@    @@}}zloop_start{{@@  @@}}(reactor);
+{{@@    @@}}zloop_destroy ([[span style="color:#666666"]]&[[/span]]reactor);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When we're done, clean up properly//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]workers)) {
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (self[[span style="color:#666666"]]->[[/span]]workers);
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]frame);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]workers);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}free (self);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

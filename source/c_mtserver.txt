@@ -1,0 +1,54 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Multithreaded Hello World server
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"
+#include <pthread.h>[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_routine[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context) {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to dispatcher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REP);
+{{@@    @@}}zmq_connect (receiver, [[span style="color:#BA2121"]]"inproc:@@//@@workers"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Received request: @@[@@%s@@]@@[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], string);
+{{@@        @@}}free (string);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some 'work'//[[/span]]
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send reply back to client//[[/span]]
+{{@@        @@}}s_send (receiver, [[span style="color:#BA2121"]]"World"[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]clients [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (clients, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]workers [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_DEALER);
+{{@@    @@}}zmq_bind (workers, [[span style="color:#BA2121"]]"inproc:@@//@@workers"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Launch pool of worker threads//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] thread_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (thread_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; thread_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]5[[/span]]; thread_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}pthread_t worker;
+{{@@        @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]worker, [[span style="color:#008000"]]NULL[[/span]], worker_routine, context);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect work threads to client threads via a queue//[[/span]]
+{{@@    @@}}zmq_device (ZMQ_QUEUE, clients, workers);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here but clean up anyhow//[[/span]]
+{{@@    @@}}zmq_close (clients);
+{{@@    @@}}zmq_close (workers);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

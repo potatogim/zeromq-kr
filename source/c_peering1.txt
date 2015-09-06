@@ -1,0 +1,64 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Broker peering simulation (part 1)
+@@//@@{{@@  @@}}Prototypes the state flow
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}First argument is this broker's name//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Other arguments are our peers' names//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]2[[/span]]) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"syntax: peering1 me {you}...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}exit (EXIT_FAILURE);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@;
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: preparing broker at %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], self);
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statebe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PUB);
+{{@@    @@}}zsocket_bind (statebe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-state.ipc"[[/span]], self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect statefe to all peers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statefe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] argn;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (argn [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]]; argn [[span style="color:#666666"]]<[[/span]] argc; argn[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]peer [[span style="color:#666666"]]=[[/span]] argv @@[@@argn@@]@@;
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: connecting to state backend at '%s'[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], peer);
+{{@@        @@}}zsocket_connect (statefe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-state.ipc"[[/span]], peer);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send out status messages to peers, and collect from peers//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}The zmq_poll timeout defines our own heartbeating//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize poll set//[[/span]]
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ statefe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Poll for activity, or 1 second timeout//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle incoming status message//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]peer_name [[span style="color:#666666"]]=[[/span]] zstr_recv (statefe);
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]available [[span style="color:#666666"]]=[[/span]] zstr_recv (statefe);
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"%s - %s workers free[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], peer_name, available);
+{{@@            @@}}free (peer_name);
+{{@@            @@}}free (available);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send random value for worker availability//[[/span]]
+{{@@            @@}}zstr_sendm (statebe, self);
+{{@@            @@}}zstr_sendf (statebe, [[span style="color:#BA2121"]]"%d"[[/span]], randof ([[span style="color:#666666"]]10[[/span]]));
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] EXIT_SUCCESS;
+}
+[[/div]]

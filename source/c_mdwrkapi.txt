@@ -1,0 +1,250 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]/*{{@@  @@}}=====================================================================
+{{@@    @@}}mdwrkapi.c
+
+{{@@    @@}}Majordomo Protocol Worker API
+{{@@    @@}}Implements the MDP/Worker spec at http:@@//@@rfc.zeromq.org/spec:7.
+
+{{@@    @@}}@@---------------------------------------------------------------------@@
+{{@@    @@}}Copyright (c) 1991-2011 iMatix Corporation <www.imatix.com>
+{{@@    @@}}Copyright other contributors as noted in the AUTHORS file.
+
+{{@@    @@}}This file is part of the ZeroMQ Guide: http:@@//@@zguide.zeromq.org
+
+{{@@    @@}}This is free software; you can redistribute it and/or modify it under
+{{@@    @@}}the terms of the GNU Lesser General Public License as published by
+{{@@    @@}}the Free Software Foundation; either version 3 of the License, or (at
+{{@@    @@}}your option) any later version.
+
+{{@@    @@}}This software is distributed in the hope that it will be useful, but
+{{@@    @@}}WITHOUT ANY WARRANTY; without even the implied warranty of
+{{@@    @@}}MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+{{@@    @@}}Lesser General Public License for more details.
+
+{{@@    @@}}You should have received a copy of the GNU Lesser General Public
+{{@@    @@}}License along with this program. If not, see
+{{@@    @@}}<http:@@//@@www.gnu.org/licenses/>.
+{{@@    @@}}=====================================================================
+*/[[/span]][[/span]]
+[[span style="color:#BC7A00"]]
+#include "mdwrkapi.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Reliability parameters//[[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT_LIVENESS{{@@  @@}}3{{@@       @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}3-5 is reasonable//[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Structure of our class
+@@//@@{{@@  @@}}We access these properties only via class methods[[/span]][[/span]]
+
+[[span style="color:#008000"]]**struct**[[/span]] _mdwrk_t {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our context//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]broker;
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service;
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker;{{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to broker//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Print activity to stdout//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Heartbeat management//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] heartbeat_at;{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When to send HEARTBEAT//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] liveness;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many attempts left//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] heartbeat;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Heartbeat delay, msecs//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] reconnect;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Reconnect delay, msecs//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Internal state//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] expect_reply;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Zero only at start//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Return address, if any//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]reply_to;
+};
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send message to broker
+@@//@@{{@@  @@}}If no msg is provided, creates one internally[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_mdwrk_send_to_broker[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]command, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]option,
+{{@@                        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg)
+{
+{{@@    @@}}msg [[span style="color:#666666"]]=[[/span]] msg[[span style="color:#666666"]]?[[/span]] zmsg_dup (msg)[[span style="color:#666666"]]:[[/span]] zmsg_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Stack protocol envelope to start of message//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (option)
+{{@@        @@}}zmsg_pushstr (msg, option);
+{{@@    @@}}zmsg_pushstr (msg, command);
+{{@@    @@}}zmsg_pushstr (msg, MDPW_WORKER);
+{{@@    @@}}zmsg_pushstr (msg, [[span style="color:#BA2121"]]""[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose) {
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: sending %s to broker"[[/span]],
+{{@@            @@}}mdps_commands @@[@@([[span style="color:#B00040"]]int[[/span]]) [[span style="color:#666666"]]*[[/span]]command@@]@@);
+{{@@        @@}}zmsg_dump (msg);
+{{@@    @@}}}
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]worker);
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Connect or reconnect to broker[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#0000FF"]]s_mdwrk_connect_to_broker[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]worker)
+{{@@        @@}}zsocket_destroy (self[[span style="color:#666666"]]->[[/span]]ctx, self[[span style="color:#666666"]]->[[/span]]worker);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_DEALER);
+{{@@    @@}}zmq_connect (self[[span style="color:#666666"]]->[[/span]]worker, self[[span style="color:#666666"]]->[[/span]]broker);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose)
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: connecting to broker at %s..."[[/span]], self[[span style="color:#666666"]]->[[/span]]broker);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register service with broker//[[/span]]
+{{@@    @@}}s_mdwrk_send_to_broker (self, MDPW_READY, self[[span style="color:#666666"]]->[[/span]]service, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If liveness hits zero, queue is considered disconnected//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] self[[span style="color:#666666"]]->[[/span]]heartbeat;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor[[/span]][[/span]]
+
+mdwrk_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]mdwrk_new[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]broker,[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service, [[span style="color:#B00040"]]int[[/span]] verbose)
+{
+{{@@    @@}}assert (broker);
+{{@@    @@}}assert (service);
+
+{{@@    @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (mdwrk_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]broker [[span style="color:#666666"]]=[[/span]] strdup (broker);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]service [[span style="color:#666666"]]=[[/span]] strdup (service);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]verbose [[span style="color:#666666"]]=[[/span]] verbose;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2500[[/span]];{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]reconnect [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2500[[/span]];{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+
+{{@@    @@}}s_mdwrk_connect_to_broker (self);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]mdwrk_destroy[[/span]] (mdwrk_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]broker);
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]service);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Set heartbeat delay[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]mdwrk_set_heartbeat[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]int[[/span]] heartbeat)
+{
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat [[span style="color:#666666"]]=[[/span]] heartbeat;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Set reconnect delay[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]mdwrk_set_reconnect[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]int[[/span]] reconnect)
+{
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]reconnect [[span style="color:#666666"]]=[[/span]] reconnect;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send reply, if any, to broker and wait for next request.[[/span]][[/span]]
+
+zmsg_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]mdwrk_recv[[/span]] (mdwrk_t [[span style="color:#666666"]]*[[/span]]self, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]reply_p)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Format and send the reply if we were provided one//[[/span]]
+{{@@    @@}}assert (reply_p);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]reply_p;
+{{@@    @@}}assert (reply [[span style="color:#666666"]]||[[/span]] [[span style="color:#666666"]]![[/span]]self[[span style="color:#666666"]]->[[/span]]expect_reply);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}assert (self[[span style="color:#666666"]]->[[/span]]reply_to);
+{{@@        @@}}zmsg_wrap (reply, self[[span style="color:#666666"]]->[[/span]]reply_to);
+{{@@        @@}}s_mdwrk_send_to_broker (self, MDPW_REPLY, [[span style="color:#008000"]]NULL[[/span]], reply);
+{{@@        @@}}zmsg_destroy (reply_p);
+{{@@    @@}}}
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]expect_reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ self[[span style="color:#666666"]]->[[/span]]worker,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], self[[span style="color:#666666"]]->[[/span]]heartbeat [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]worker);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose) {
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"I: received message from broker:"[[/span]]);
+{{@@                @@}}zmsg_dump (msg);
+{{@@            @@}}}
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]liveness [[span style="color:#666666"]]=[[/span]] HEARTBEAT_LIVENESS;
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Don't try to handle errors, just assert noisily//[[/span]]
+{{@@            @@}}assert (zmsg_size (msg) [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]3[[/span]]);
+
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}assert (zframe_streq (empty, [[span style="color:#BA2121"]]""[[/span]]));
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]empty);
+
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]header [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}assert (zframe_streq (header, MDPW_WORKER));
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]header);
+
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]command [[span style="color:#666666"]]=[[/span]] zmsg_pop (msg);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_REQUEST)) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We should pop and save as many addresses as there are//[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}up to a null part, but for now, just save one...//[[/span]]
+{{@@                @@}}self[[span style="color:#666666"]]->[[/span]]reply_to [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@                @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]command);
+{{@@                @@}}[[span style="color:#008000"]]**return**[[/span]] msg;{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We have a request to process//[[/span]]
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_HEARTBEAT))
+{{@@                @@}};{{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do nothing for heartbeats//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (command, MDPW_DISCONNECT))
+{{@@                @@}}s_mdwrk_connect_to_broker (self);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"E: invalid input message"[[/span]]);
+{{@@                @@}}zmsg_dump (msg);
+{{@@            @@}}}
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]command);
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]@@--@@[[/span]]self[[span style="color:#666666"]]->[[/span]]liveness [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]verbose)
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"W: disconnected from broker - retrying..."[[/span]]);
+{{@@            @@}}zclock_sleep (self[[span style="color:#666666"]]->[[/span]]reconnect);
+{{@@            @@}}s_mdwrk_connect_to_broker (self);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send HEARTBEAT if it's time//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]heartbeat_at) {
+{{@@            @@}}s_mdwrk_send_to_broker (self, MDPW_HEARTBEAT, [[span style="color:#008000"]]NULL[[/span]], [[span style="color:#008000"]]NULL[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] self[[span style="color:#666666"]]->[[/span]]heartbeat;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"W: interrupt received, killing worker...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+[[/div]]

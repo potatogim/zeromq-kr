@@ -1,0 +1,423 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]/*{{@@  @@}}=====================================================================
+{{@@    @@}}clone - client-side Clone Pattern class
+
+{{@@    @@}}@@---------------------------------------------------------------------@@
+{{@@    @@}}Copyright (c) 1991-2011 iMatix Corporation <www.imatix.com>
+{{@@    @@}}Copyright other contributors as noted in the AUTHORS file.
+
+{{@@    @@}}This file is part of the ZeroMQ Guide: http:@@//@@zguide.zeromq.org
+
+{{@@    @@}}This is free software; you can redistribute it and/or modify it under
+{{@@    @@}}the terms of the GNU Lesser General Public License as published by
+{{@@    @@}}the Free Software Foundation; either version 3 of the License, or (at
+{{@@    @@}}your option) any later version.
+
+{{@@    @@}}This software is distributed in the hope that it will be useful, but
+{{@@    @@}}WITHOUT ANY WARRANTY; without even the implied warranty of
+{{@@    @@}}MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+{{@@    @@}}Lesser General Public License for more details.
+
+{{@@    @@}}You should have received a copy of the GNU Lesser General Public
+{{@@    @@}}License along with this program. If not, see
+{{@@    @@}}<http:@@//@@www.gnu.org/licenses/>.
+{{@@    @@}}=====================================================================
+*/[[/span]][[/span]]
+[[span style="color:#BC7A00"]]
+#include "clone.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}If no server replies within this time, abandon request//[[/span]]
+[[span style="color:#BC7A00"]]#define GLOBAL_TIMEOUT{{@@  @@}}4000{{@@    @@}}[[/span]][[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}msecs
+@@//@@{{@@  @@}}Server considered dead if silent for this long[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#define SERVER_TTL{{@@      @@}}5000{{@@    @@}}[[/span]][[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}msecs
+@@//@@{{@@  @@}}Number of servers we will talk to[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#define SERVER_MAX{{@@      @@}}2[[/span]]
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}=====================================================================
+@@//@@{{@@  @@}}Synchronous part, works in our application thread[[/span]][[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Structure of our class[[/span]][[/span]]
+
+[[span style="color:#008000"]]**struct**[[/span]] _clone_t {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our context wrapper//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Pipe through to clone agent//[[/span]]
+};
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This is the thread that handles our real clone class//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] clone_agent ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe);
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor[[/span]][[/span]]
+
+clone_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]clone_new[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}clone_t
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self;
+
+{{@@    @@}}self [[span style="color:#666666"]]=[[/span]] (clone_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (clone_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]pipe [[span style="color:#666666"]]=[[/span]] zthread_fork (self[[span style="color:#666666"]]->[[/span]]ctx, clone_agent, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]clone_destroy[[/span]] (clone_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}clone_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Specify subtree for snapshot and updates, do before connect
+@@//@@{{@@  @@}}Sends @@[@@SUBTREE@@][@@subtree@@]@@ to the agent[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#0000FF"]]clone_subtree[[/span]] (clone_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (msg, [[span style="color:#BA2121"]]"SUBTREE"[[/span]]);
+{{@@    @@}}zmsg_addstr (msg, subtree);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]pipe);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Connect to new server endpoint
+@@//@@{{@@  @@}}Sends @@[@@CONNECT@@][@@endpoint@@][@@service@@]@@ to the agent[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]clone_connect[[/span]] (clone_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (msg, [[span style="color:#BA2121"]]"CONNECT"[[/span]]);
+{{@@    @@}}zmsg_addstr (msg, address);
+{{@@    @@}}zmsg_addstr (msg, service);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]pipe);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Set new value in distributed hash table
+@@//@@{{@@  @@}}Sends @@[@@SET@@][@@key@@][@@value@@][@@ttl@@]@@ to the agent[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]clone_set[[/span]] (clone_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]value, [[span style="color:#B00040"]]int[[/span]] ttl)
+{
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] ttlstr @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@    @@}}sprintf (ttlstr, [[span style="color:#BA2121"]]"%d"[[/span]], ttl);
+
+{{@@    @@}}assert (self);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (msg, [[span style="color:#BA2121"]]"SET"[[/span]]);
+{{@@    @@}}zmsg_addstr (msg, key);
+{{@@    @@}}zmsg_addstr (msg, value);
+{{@@    @@}}zmsg_addstr (msg, ttlstr);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]pipe);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Lookup value in distributed hash table
+@@//@@{{@@  @@}}Sends @@[@@GET@@][@@key@@]@@ to the agent and waits for a value response
+@@//@@{{@@  @@}}If there is no clone available, will eventually return NULL.[[/span]][[/span]]
+
+[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]clone_get[[/span]] (clone_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}assert (key);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (msg, [[span style="color:#BA2121"]]"GET"[[/span]]);
+{{@@    @@}}zmsg_addstr (msg, key);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]pipe);
+
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]value [[span style="color:#666666"]]=[[/span]] zmsg_popstr (reply);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**return**[[/span]] value;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}=====================================================================
+@@//@@{{@@  @@}}Asynchronous part, works in the background[[/span]][[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Simple class for one server we talk to[[/span]][[/span]]
+
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server address//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] port;{{@@                   @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server port//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Snapshot socket//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Incoming updates//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] expiry;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When server expires//[[/span]]
+{{@@    @@}}uint requests;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many snapshot requests made?//[[/span]]
+} server_t;
+
+[[span style="color:#008000"]]**static**[[/span]] server_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]server_new[[/span]] (zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address, [[span style="color:#B00040"]]int[[/span]] port, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree)
+{
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (server_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (server_t));
+
+{{@@    @@}}zclock_log ([[span style="color:#BA2121"]]"I: adding server %s:%d..."[[/span]], address, port);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]address [[span style="color:#666666"]]=[[/span]] strdup (address);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]=[[/span]] port;
+
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]snapshot [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]snapshot, [[span style="color:#BA2121"]]"%s:%d"[[/span]], address, port);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]subscriber, [[span style="color:#BA2121"]]"%s:%d"[[/span]], address, port [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zsockopt_set_subscribe (self[[span style="color:#666666"]]->[[/span]]subscriber, subtree);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]server_destroy[[/span]] (server_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}server_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]address);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Our agent class[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}States we can be in//[[/span]]
+[[span style="color:#BC7A00"]]#define STATE_INITIAL{{@@       @@}}0{{@@   @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Before asking server for state//[[/span]]
+[[span style="color:#BC7A00"]]#define STATE_SYNCING{{@@       @@}}1{{@@   @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Getting state from server//[[/span]]
+[[span style="color:#BC7A00"]]#define STATE_ACTIVE{{@@        @@}}2{{@@   @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Getting new updates from server//[[/span]]
+
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context wrapper//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Pipe back to application//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Actual key/value table//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Subtree specification, if any//[[/span]]
+{{@@    @@}}server_t [[span style="color:#666666"]]*[[/span]]server @@[@@SERVER_MAX@@]@@;
+{{@@    @@}}uint nbr_servers;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}0 to SERVER_MAX//[[/span]]
+{{@@    @@}}uint state;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current state//[[/span]]
+{{@@    @@}}uint cur_server;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If active, server 0 or 1//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Last kvmsg processed//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Outgoing updates//[[/span]]
+} agent_t;
+
+[[span style="color:#008000"]]**static**[[/span]] agent_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]agent_new[[/span]] (zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (agent_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (agent_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] ctx;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]pipe [[span style="color:#666666"]]=[[/span]] pipe;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]subtree [[span style="color:#666666"]]=[[/span]] strdup ([[span style="color:#BA2121"]]""[[/span]]);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_INITIAL;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_PUB);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]agent_destroy[[/span]] (agent_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] server_nbr;
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (server_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; server_nbr [[span style="color:#666666"]]<[[/span]] self[[span style="color:#666666"]]->[[/span]]nbr_servers; server_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@            @@}}server_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]server @@[@@server_nbr@@]@@);
+{{@@        @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]subtree);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Returns -1 if thread was interrupted//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]agent_control_message[[/span]] (agent_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]pipe);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]command [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (command [[span style="color:#666666"]]==[[/span]] [[span style="color:#008000"]]NULL[[/span]])
+{{@@        @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"SUBTREE"[[/span]])) {
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]subtree);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]subtree [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"CONNECT"[[/span]])) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]nbr_servers [[span style="color:#666666"]]<[[/span]] SERVER_MAX) {
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]server @@[@@self[[span style="color:#666666"]]->[[/span]]nbr_servers[[span style="color:#666666"]]++[[/span]]@@]@@ [[span style="color:#666666"]]=[[/span]] server_new (
+{{@@                @@}}self[[span style="color:#666666"]]->[[/span]]ctx, address, atoi (service), self[[span style="color:#666666"]]->[[/span]]subtree);
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We broadcast updates to all known servers//[[/span]]
+{{@@            @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]publisher, [[span style="color:#BA2121"]]"%s:%d"[[/span]],
+{{@@                @@}}address, atoi (service) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]]);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"E: too many servers (max. %d)"[[/span]], SERVER_MAX);
+{{@@        @@}}free (address);
+{{@@        @@}}free (service);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"SET"[[/span]])) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]value [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]ttl [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}zhash_update (self[[span style="color:#666666"]]->[[/span]]kvmap, key, (byte [[span style="color:#666666"]]*[[/span]]) value);
+{{@@        @@}}zhash_freefn (self[[span style="color:#666666"]]->[[/span]]kvmap, key, free);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send key-value pair on to server//[[/span]]
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new ([[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}kvmsg_set_key{{@@  @@}}(kvmsg, key);
+{{@@        @@}}kvmsg_set_uuid (kvmsg);
+{{@@        @@}}kvmsg_fmt_body (kvmsg, [[span style="color:#BA2121"]]"%s"[[/span]], value);
+{{@@        @@}}kvmsg_set_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]], ttl);
+{{@@        @@}}kvmsg_send{{@@     @@}}(kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@        @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+puts (key);
+{{@@        @@}}free (ttl);
+{{@@        @@}}free (key);{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Value is owned by hash table//[[/span]]
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (command, [[span style="color:#BA2121"]]"GET"[[/span]])) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]value [[span style="color:#666666"]]=[[/span]] zhash_lookup (self[[span style="color:#666666"]]->[[/span]]kvmap, key);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (value)
+{{@@            @@}}zstr_send (self[[span style="color:#666666"]]->[[/span]]pipe, value);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}zstr_send (self[[span style="color:#666666"]]->[[/span]]pipe, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@        @@}}free (key);
+{{@@        @@}}free (value);
+{{@@    @@}}}
+{{@@    @@}}free (command);
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Asynchronous agent manages server pool and handles request/reply
+@@//@@{{@@  @@}}dialog when the application asks for it.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]clone_agent[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}agent_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] agent_new (ctx, pipe);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmq_pollitem_t poll_set @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ pipe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ [[span style="color:#666666"]]0[[/span]],{{@@    @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] poll_timer [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] poll_size [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]];
+{{@@        @@}}server_t [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]] self[[span style="color:#666666"]]->[[/span]]server @@[@@self[[span style="color:#666666"]]->[[/span]]cur_server@@]@@;
+{{@@        @@}}[[span style="color:#008000"]]**switch**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state) {
+{{@@            @@}}[[span style="color:#008000"]]**case**[[/span]] STATE_INITIAL:
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}In this state we ask the server for a snapshot,//[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}if we have a server to talk to...//[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]nbr_servers [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                    @@}}zclock_log ([[span style="color:#BA2121"]]"I: waiting for server at %s:%d..."[[/span]],
+{{@@                        @@}}server[[span style="color:#666666"]]->[[/span]]address, server[[span style="color:#666666"]]->[[/span]]port);
+{{@@                    @@}}[[span style="color:#008000"]]**if**[[/span]] (server[[span style="color:#666666"]]->[[/span]]requests [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]2[[/span]]) {
+{{@@                        @@}}zstr_sendm (server[[span style="color:#666666"]]->[[/span]]snapshot, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]]);
+{{@@                        @@}}zstr_send{{@@  @@}}(server[[span style="color:#666666"]]->[[/span]]snapshot, self[[span style="color:#666666"]]->[[/span]]subtree);
+{{@@                        @@}}server[[span style="color:#666666"]]->[[/span]]requests[[span style="color:#666666"]]++[[/span]];
+{{@@                    @@}}}
+{{@@                    @@}}server[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] SERVER_TTL;
+{{@@                    @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_SYNCING;
+{{@@                    @@}}poll_set @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.socket [[span style="color:#666666"]]=[[/span]] server[[span style="color:#666666"]]->[[/span]]snapshot;
+{{@@                @@}}}
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                    @@}}poll_size [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@            @@}}[[span style="color:#008000"]]**case**[[/span]] STATE_SYNCING:
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}In this state we read from snapshot and we expect//[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}the server to respond, else we fail over.//[[/span]]
+{{@@                @@}}poll_set @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.socket [[span style="color:#666666"]]=[[/span]] server[[span style="color:#666666"]]->[[/span]]snapshot;
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@            @@}}[[span style="color:#008000"]]**case**[[/span]] STATE_ACTIVE:
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}In this state we read from subscriber and we expect//[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}the server to give hugz, else we fail over.//[[/span]]
+{{@@                @@}}poll_set @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.socket [[span style="color:#666666"]]=[[/span]] server[[span style="color:#666666"]]->[[/span]]subscriber;
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (server) {
+{{@@            @@}}poll_timer [[span style="color:#666666"]]=[[/span]] (server[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]-[[/span]] zclock_time ())
+{{@@                       @@}}[[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (poll_timer [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                @@}}poll_timer [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}@@------------------------------------------------------------@@//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Poll loop//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (poll_set, poll_size, poll_timer);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context has been shut down//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (poll_set @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (agent_control_message (self))
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (poll_set @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (poll_set @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.socket);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Anything from server resets its expiry time//[[/span]]
+{{@@            @@}}server[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] SERVER_TTL;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_SYNCING) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Store in snapshot until we're finished//[[/span]]
+{{@@                @@}}server[[span style="color:#666666"]]->[[/span]]requests [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (kvmsg_key (kvmsg), [[span style="color:#BA2121"]]"KTHXBAI"[[/span]])) {
+{{@@                    @@}}self[[span style="color:#666666"]]->[[/span]]sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@                    @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@                    @@}}zclock_log ([[span style="color:#BA2121"]]"I: received from %s:%d snapshot=%d"[[/span]],
+{{@@                        @@}}server[[span style="color:#666666"]]->[[/span]]address, server[[span style="color:#666666"]]->[[/span]]port,
+{{@@                        @@}}([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@                    @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@                @@}}}
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                    @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_ACTIVE) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Discard out-of-sequence updates, incl. hugz//[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg_sequence (kvmsg) [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]sequence) {
+{{@@                    @@}}self[[span style="color:#666666"]]->[[/span]]sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@                    @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@                    @@}}zclock_log ([[span style="color:#BA2121"]]"I: received from %s:%d update=%d"[[/span]],
+{{@@                        @@}}server[[span style="color:#666666"]]->[[/span]]address, server[[span style="color:#666666"]]->[[/span]]port,
+{{@@                        @@}}([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@                @@}}}
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                    @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server has died, failover to next//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: server at %s:%d didn't give hugz"[[/span]],
+{{@@                    @@}}server[[span style="color:#666666"]]->[[/span]]address, server[[span style="color:#666666"]]->[[/span]]port);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]cur_server [[span style="color:#666666"]]=[[/span]] (self[[span style="color:#666666"]]->[[/span]]cur_server [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]%[[/span]] self[[span style="color:#666666"]]->[[/span]]nbr_servers;
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_INITIAL;
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}agent_destroy ([[span style="color:#666666"]]&[[/span]]self);
+}
+[[/div]]

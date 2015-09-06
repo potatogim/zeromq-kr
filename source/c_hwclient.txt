@@ -1,0 +1,40 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Hello World client
+@@//@@{{@@  @@}}Connects REQ socket to tcp:@@//@@localhost:5555
+@@//@@{{@@  @@}}Sends "Hello" to server, expects "World" back
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include <zmq.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to server//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Connecting to hello world server...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]requester [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}zmq_connect (requester, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] request_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (request_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; request_nbr [[span style="color:#666666"]]!=[[/span]] [[span style="color:#666666"]]10[[/span]]; request_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}zmq_msg_t request;
+{{@@        @@}}zmq_msg_init_size ([[span style="color:#666666"]]&[[/span]]request, [[span style="color:#666666"]]5[[/span]]);
+{{@@        @@}}memcpy (zmq_msg_data ([[span style="color:#666666"]]&[[/span]]request), [[span style="color:#BA2121"]]"Hello"[[/span]], [[span style="color:#666666"]]5[[/span]]);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Sending Hello %d...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request_nbr);
+{{@@        @@}}zmq_send (requester, [[span style="color:#666666"]]&[[/span]]request, [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]request);
+
+{{@@        @@}}zmq_msg_t reply;
+{{@@        @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}zmq_recv (requester, [[span style="color:#666666"]]&[[/span]]reply, [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Received World %d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request_nbr);
+{{@@        @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (requester);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,49 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Reading from multiple sockets
+@@//@@{{@@  @@}}This version uses zmq_poll()
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to task ventilator//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_connect (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to weather server//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_SUBSCRIBE, [[span style="color:#BA2121"]]"10001 "[[/span]], [[span style="color:#666666"]]6[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize poll set//[[/span]]
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ receiver, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ subscriber, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages from both sockets//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_msg_t message;
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@            @@}}zmq_recv (receiver, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process task//[[/span]]
+{{@@            @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@            @@}}zmq_recv (subscriber, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process weather update//[[/span]]
+{{@@            @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here//[[/span]]
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_close (subscriber);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,77 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Clone client Model Three
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "kvsimple.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and subscriber//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_connect (snapshot, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PUSH);
+{{@@    @@}}zsocket_connect (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5558"[[/span]]);
+
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get state snapshot//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}zstr_send (snapshot, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (snapshot);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (kvmsg_key (kvmsg), [[span style="color:#BA2121"]]"KTHXBAI"[[/span]])) {
+{{@@            @@}}sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: received snapshot=%d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Done//[[/span]]
+{{@@        @@}}}
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] alarm [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1000[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { subscriber, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] tickless [[span style="color:#666666"]]=[[/span]] ([[span style="color:#B00040"]]int[[/span]]) ((alarm [[span style="color:#666666"]]-[[/span]] zclock_time ()));
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (tickless [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@            @@}}tickless [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], tickless [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context has been shut down//[[/span]]
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (subscriber);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Discard out-of-sequence kvmsgs, incl. heartbeats//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg_sequence (kvmsg) [[span style="color:#666666"]]>[[/span]] sequence) {
+{{@@                @@}}sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@                @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"I: received update=%d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we timed-out, generate a random kvmsg//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] alarm) {
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new ([[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}kvmsg_fmt_key{{@@  @@}}(kvmsg, [[span style="color:#BA2121"]]"%d"[[/span]], randof ([[span style="color:#666666"]]10000[[/span]]));
+{{@@            @@}}kvmsg_fmt_body (kvmsg, [[span style="color:#BA2121"]]"%d"[[/span]], randof ([[span style="color:#666666"]]1000000[[/span]]));
+{{@@            @@}}kvmsg_send{{@@     @@}}(kvmsg, publisher);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}alarm [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1000[[/span]];
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]" Interrupted[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]%d messages in[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

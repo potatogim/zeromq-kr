@@ -1,0 +1,8 @@
+[[div class="code"]]
+[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]zmsg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@    @@}}zframe_print (zmsg_last (zmsg), [[span style="color:#BA2121"]]"Worker: "[[/span]]);
+{{@@    @@}}zframe_reset (zmsg_last (zmsg), [[span style="color:#BA2121"]]"OK"[[/span]], [[span style="color:#666666"]]2[[/span]]);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]zmsg, worker);
+}
+[[/div]]

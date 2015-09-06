@@ -1,0 +1,24 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Create a new Binary Star instance, using local (bind) and
+@@//@@{{@@  @@}}remote (connect) endpoints to set-up the server peering.[[/span]][[/span]]
+bstar_t [[span style="color:#666666"]]*[[/span]]bstar_new ([[span style="color:#B00040"]]int[[/span]] primary, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]local, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]remote);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy a Binary Star instance//[[/span]]
+[[span style="color:#B00040"]]void[[/span]] bstar_destroy (bstar_t [[span style="color:#666666"]]@@**@@[[/span]]self_p);
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Return underlying zloop reactor, for timer and reader
+@@//@@{{@@  @@}}registration and cancelation.[[/span]][[/span]]
+zloop_t [[span style="color:#666666"]]*[[/span]]bstar_zloop (bstar_t [[span style="color:#666666"]]*[[/span]]self);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register voting reader//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] bstar_voter (bstar_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint, [[span style="color:#B00040"]]int[[/span]] type,
+{{@@                 @@}}zloop_fn handler, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register main state change handlers//[[/span]]
+[[span style="color:#B00040"]]void[[/span]] bstar_new_master (bstar_t [[span style="color:#666666"]]*[[/span]]self, zloop_fn handler, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg);
+[[span style="color:#B00040"]]void[[/span]] bstar_new_slave (bstar_t [[span style="color:#666666"]]*[[/span]]self, zloop_fn handler, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg);
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Start the reactor, ends if a callback function returns -1, or the
+@@//@@{{@@  @@}}process received SIGINT or SIGTERM.[[/span]][[/span]]
+[[span style="color:#B00040"]]int[[/span]] bstar_start (bstar_t [[span style="color:#666666"]]*[[/span]]self);
+[[/div]]

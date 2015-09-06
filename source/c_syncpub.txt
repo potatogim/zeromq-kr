@@ -1,0 +1,46 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Synchronized publisher
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}We wait for 10 subscribers//[[/span]]
+[[span style="color:#BC7A00"]]#define SUBSCRIBERS_EXPECTED{{@@  @@}}10[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5561"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to receive signals//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]syncservice [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REP);
+{{@@    @@}}zmq_bind (syncservice, [[span style="color:#BA2121"]]"tcp:@@//@@*:5562"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get synchronization from subscribers//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Waiting for subscribers[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] subscribers [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (subscribers [[span style="color:#666666"]]<[[/span]] SUBSCRIBERS_EXPECTED) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- wait for synchronization request//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (syncservice);
+{{@@        @@}}free (string);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- send synchronization reply//[[/span]]
+{{@@        @@}}s_send (syncservice, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@        @@}}subscribers[[span style="color:#666666"]]++[[/span]];
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now broadcast exactly 1M updates followed by END//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Broadcasting messages[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] update_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (update_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; update_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]1000000[[/span]]; update_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}s_send (publisher, [[span style="color:#BA2121"]]"Rhubarb"[[/span]]);
+
+{{@@    @@}}s_send (publisher, [[span style="color:#BA2121"]]"END"[[/span]]);
+
+{{@@    @@}}zmq_close (publisher);
+{{@@    @@}}zmq_close (syncservice);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

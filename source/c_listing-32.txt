@@ -1,0 +1,11 @@
+[[div class="code"]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Specify endpoints for each socket we need//[[/span]]
+{{@@    @@}}clone_subscribe (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+{{@@    @@}}clone_snapshot{{@@  @@}}(clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+{{@@    @@}}clone_updates{{@@   @@}}(clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Times two, since we have two servers//[[/span]]
+{{@@    @@}}clone_subscribe (clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5566"[[/span]]);
+{{@@    @@}}clone_snapshot{{@@  @@}}(clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5567"[[/span]]);
+{{@@    @@}}clone_updates{{@@   @@}}(clone, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5568"[[/span]]);
+[[/div]]

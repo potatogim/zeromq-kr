@@ -1,0 +1,6 @@
+[[div class="code"]]
+zloop_t [[span style="color:#666666"]]*[[/span]]reactor [[span style="color:#666666"]]=[[/span]] zloop_new ();
+zloop_reader (reactor, self[[span style="color:#666666"]]->[[/span]]backend, s_handle_backend, self);
+zloop_start (reactor);
+zloop_destroy ([[span style="color:#666666"]]&[[/span]]reactor);
+[[/div]]

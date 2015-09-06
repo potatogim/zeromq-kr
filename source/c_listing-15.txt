@@ -1,0 +1,9 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#0000FF"]]my_free[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]hint) {
+{{@@    @@}}free (data);
+}
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send message from buffer, which we allocate and 0MQ will free for us//[[/span]]
+zmq_msg_t message;
+zmq_msg_init_data ([[span style="color:#666666"]]&[[/span]]message, buffer, [[span style="color:#666666"]]1000[[/span]], my_free, [[span style="color:#008000"]]NULL[[/span]]);
+zmq_send (socket, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+[[/div]]

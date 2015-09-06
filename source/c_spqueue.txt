@@ -1,0 +1,67 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Simple Pirate queue
+@@//@@{{@@  @@}}This is identical to the LRU pattern, with no reliability mechanisms
+@@//@@{{@@  @@}}at all. It depends on the client for recovery. Runs forever.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+
+#define LRU_READY{{@@   @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For clients//[[/span]]
+{{@@    @@}}zsocket_bind (backend,{{@@  @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For workers//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue of available workers//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]workers [[span style="color:#666666"]]=[[/span]] zlist_new ();
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Poll frontend only if we have available workers//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, zlist_size (workers)[[span style="color:#666666"]]?[[/span]] [[span style="color:#666666"]]2[[/span]][[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle worker activity on backend//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Use worker address for LRU routing//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (backend);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@            @@}}zlist_append (workers, address);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Forward message to client if it's not a READY//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zmsg_first (msg);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (zframe_data (frame), LRU_READY, [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, frontend);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get client request, route to first available worker//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (frontend);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (msg) {
+{{@@                @@}}zmsg_wrap (msg, (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (workers));
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, backend);
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When we're done, clean up properly//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (workers)) {
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (workers);
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]frame);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]workers);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

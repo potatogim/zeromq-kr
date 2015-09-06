@@ -1,0 +1,60 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Simple request-reply broker
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend{{@@  @@}}[[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_DEALER);
+{{@@    @@}}zmq_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5559"[[/span]]);
+{{@@    @@}}zmq_bind (backend,{{@@  @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5560"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize poll set//[[/span]]
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Switch messages between sockets//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_msg_t message;
+{{@@        @@}}[[span style="color:#B00040"]]int64_t[[/span]] more;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Multipart detection//[[/span]]
+
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process all parts of the message//[[/span]]
+{{@@                @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@                @@}}zmq_recv (frontend, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}[[span style="color:#B00040"]]size_t[[/span]] more_size [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]**sizeof**[[/span]] (more);
+{{@@                @@}}zmq_getsockopt (frontend, ZMQ_RCVMORE, [[span style="color:#666666"]]&[[/span]]more, [[span style="color:#666666"]]&[[/span]]more_size);
+{{@@                @@}}zmq_send (backend, [[span style="color:#666666"]]&[[/span]]message, more[[span style="color:#666666"]]?[[/span]] ZMQ_SNDMORE[[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]more)
+{{@@                    @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Last message part//[[/span]]
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process all parts of the message//[[/span]]
+{{@@                @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@                @@}}zmq_recv (backend, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}[[span style="color:#B00040"]]size_t[[/span]] more_size [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]**sizeof**[[/span]] (more);
+{{@@                @@}}zmq_getsockopt (backend, ZMQ_RCVMORE, [[span style="color:#666666"]]&[[/span]]more, [[span style="color:#666666"]]&[[/span]]more_size);
+{{@@                @@}}zmq_send (frontend, [[span style="color:#666666"]]&[[/span]]message, more[[span style="color:#666666"]]?[[/span]] ZMQ_SNDMORE[[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]more)
+{{@@                    @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Last message part//[[/span]]
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here but clean up anyhow//[[/span]]
+{{@@    @@}}zmq_close (frontend);
+{{@@    @@}}zmq_close (backend);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

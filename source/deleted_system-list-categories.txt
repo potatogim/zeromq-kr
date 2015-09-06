@@ -1,0 +1,8 @@
+@gerdami : because this is the 'blank' template I think it's a better idea to add it to the table on [[[start]]] and not actually have a page for it...
+Though adding it to this site: http://default-template.wikidot.com would be a good idea!
+
+@anonymous : will you have the same reasoning with the old-fashioned system:list-all-pages ? -gerdami-
+
+@gerdami: it's leiger :) And yes, I was kinda hoping to delete that page as well... this is, after all, the "blank" template. Blank = nothing, or ... barely anything. It's up to pieter. Like I said, the categories module would definitely be useful for me in some situations, and I think that a good place to put it is the default template (not this blank one)... because if I was starting a new site and had a bunch of templates to choose from, I'd expect 'blank' to be .. well, blank.
+------
+[[module Categories]]

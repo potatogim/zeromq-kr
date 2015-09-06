@@ -1,0 +1,176 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Paranoid Pirate queue
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+
+#define HEARTBEAT_LIVENESS{{@@  @@}}3{{@@       @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}3-5 is reasonable//[[/span]]
+[[span style="color:#BC7A00"]]#define HEARTBEAT_INTERVAL{{@@  @@}}1000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Paranoid Pirate Protocol constants//[[/span]]
+[[span style="color:#BC7A00"]]#define PPP_READY{{@@       @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+[[span style="color:#BC7A00"]]#define PPP_HEARTBEAT{{@@   @@}}"\002"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker heartbeat//[[/span]]
+
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}This defines one active worker in our worker list//[[/span]]
+
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Address of worker//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]identity;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Printable identity//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] expiry;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Expires at this time//[[/span]]
+} worker_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Construct new worker//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] worker_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_worker_new[[/span]] (zframe_t [[span style="color:#666666"]]*[[/span]]address)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (worker_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]address [[span style="color:#666666"]]=[[/span]] address;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_strdup (address);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL [[span style="color:#666666"]]*[[/span]] HEARTBEAT_LIVENESS;
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy specified worker object, including identity frame.//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_destroy[[/span]] (worker_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}worker_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]address);
+{{@@        @@}}free (self[[span style="color:#666666"]]->[[/span]]identity);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Worker is ready, remove if on list and move to end//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_worker_ready[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]self, zlist_t [[span style="color:#666666"]]*[[/span]]workers)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (workers);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (worker) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (self[[span style="color:#666666"]]->[[/span]]identity, worker[[span style="color:#666666"]]->[[/span]]identity)) {
+{{@@            @@}}zlist_remove (workers, worker);
+{{@@            @@}}s_worker_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_next (workers);
+{{@@    @@}}}
+{{@@    @@}}zlist_append (workers, self);
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Return next available worker address//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] zframe_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_workers_next[[/span]] (zlist_t [[span style="color:#666666"]]*[[/span]]workers)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zlist_pop (workers);
+{{@@    @@}}assert (worker);
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] worker[[span style="color:#666666"]]->[[/span]]address;
+{{@@    @@}}worker[[span style="color:#666666"]]->[[/span]]address [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}s_worker_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] frame;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Look for & kill expired workers. Workers are oldest to most recent,
+@@//@@{{@@  @@}}so we stop at the first alive worker.[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]s_workers_purge[[/span]] (zlist_t [[span style="color:#666666"]]*[[/span]]workers)
+{
+{{@@    @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (workers);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (worker) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]<[[/span]] worker[[span style="color:#666666"]]->[[/span]]expiry)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Worker is alive, we're done here//[[/span]]
+
+{{@@        @@}}zlist_remove (workers, worker);
+{{@@        @@}}s_worker_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@        @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (workers);
+{{@@    @@}}}
+}
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend{{@@  @@}}[[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For clients//[[/span]]
+{{@@    @@}}zsocket_bind (backend,{{@@  @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For workers//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}List of available workers//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]workers [[span style="color:#666666"]]=[[/span]] zlist_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send out heartbeats at regular intervals//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Poll frontend only if we have available workers//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, zlist_size (workers)[[span style="color:#666666"]]?[[/span]] [[span style="color:#666666"]]2[[/span]][[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]1[[/span]],
+{{@@            @@}}HEARTBEAT_INTERVAL [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle worker activity on backend//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Use worker address for LRU routing//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (backend);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Any sign of life from worker means it's ready//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@            @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] s_worker_new (address);
+{{@@            @@}}s_worker_ready (worker, workers);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Validate control message, or return reply to client//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zmsg_size (msg) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@                @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zmsg_first (msg);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (zframe_data (frame), PPP_READY, [[span style="color:#666666"]]1[[/span]])
+{{@@                @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (zframe_data (frame), PPP_HEARTBEAT, [[span style="color:#666666"]]1[[/span]])) {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"E: invalid message from worker"[[/span]]);
+{{@@                    @@}}zmsg_dump (msg);
+{{@@                @@}}}
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, frontend);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now get next client request, route to next worker//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (frontend);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}zmsg_push (msg, s_workers_next (workers));
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, backend);
+{{@@        @@}}}
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send heartbeats to idle workers if it's time//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] heartbeat_at) {
+{{@@            @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_first (workers);
+{{@@            @@}}[[span style="color:#008000"]]**while**[[/span]] (worker) {
+{{@@                @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]worker[[span style="color:#666666"]]->[[/span]]address, backend,
+{{@@                             @@}}ZFRAME_REUSE [[span style="color:#666666"]]+[[/span]] ZFRAME_MORE);
+{{@@                @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (PPP_HEARTBEAT, [[span style="color:#666666"]]1[[/span]]);
+{{@@                @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, backend, [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_next (workers);
+{{@@            @@}}}
+{{@@            @@}}heartbeat_at [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] HEARTBEAT_INTERVAL;
+{{@@        @@}}}
+{{@@        @@}}s_workers_purge (workers);
+{{@@    @@}}}
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When we're done, clean up properly//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (workers)) {
+{{@@        @@}}worker_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] (worker_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (workers);
+{{@@        @@}}s_worker_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]workers);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

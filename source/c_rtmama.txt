@@ -1,0 +1,90 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Custom routing Router to Mama (ROUTER to REQ)
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each thread has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"
+#include <pthread.h>
+
+#define NBR_WORKERS 10[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We use a string identity for ease here//[[/span]]
+{{@@    @@}}s_set_id (worker);
+{{@@    @@}}zmq_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@routing.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] total [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell the router we're ready for work//[[/span]]
+{{@@        @@}}s_send (worker, [[span style="color:#BA2121"]]"ready"[[/span]]);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get workload from router, until finished//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]workload [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] finished [[span style="color:#666666"]]=[[/span]] (strcmp (workload, [[span style="color:#BA2121"]]"END"[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}free (workload);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (finished) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"Processed: %d tasks[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], total);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}total[[span style="color:#666666"]]++[[/span]];
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some random work//[[/span]]
+{{@@        @@}}s_sleep (randof ([[span style="color:#666666"]]1000[[/span]]) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (worker);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (client, [[span style="color:#BA2121"]]"ipc:@@//@@routing.ipc"[[/span]]);
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] worker_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (worker_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; worker_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS; worker_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}pthread_t worker;
+{{@@        @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]worker, [[span style="color:#008000"]]NULL[[/span]], worker_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] task_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (task_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; task_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]10[[/span]]; task_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}LRU worker is next waiting in queue//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}free (empty);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]ready [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}free (ready);
+
+{{@@        @@}}s_sendmore (client, address);
+{{@@        @@}}s_sendmore (client, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@        @@}}s_send (client, [[span style="color:#BA2121"]]"This is the workload"[[/span]]);
+{{@@        @@}}free (address);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now ask mamas to shut down and report their results//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (worker_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; worker_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS; worker_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}free (empty);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]ready [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@        @@}}free (ready);
+
+{{@@        @@}}s_sendmore (client, address);
+{{@@        @@}}s_sendmore (client, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@        @@}}s_send (client, [[span style="color:#BA2121"]]"END"[[/span]]);
+{{@@        @@}}free (address);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (client);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

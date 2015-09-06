@@ -1,0 +1,3 @@
+[[div class="code"]]
+kvmsg_set_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]], [[span style="color:#BA2121"]]"%d"[[/span]], randof ([[span style="color:#666666"]]30[[/span]]));
+[[/div]]

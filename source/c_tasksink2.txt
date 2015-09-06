@@ -1,0 +1,52 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Task sink - design 2
+@@//@@{{@@  @@}}Adds pub-sub flow to send kill signal to workers
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to receive messages on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_bind (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@*:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket for worker control//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]controller [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (controller, [[span style="color:#BA2121"]]"tcp:@@//@@*:5559"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for start of batch//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@    @@}}free (string);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start our clock now//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] start_time [[span style="color:#666666"]]=[[/span]] s_clock ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process 100 confirmations//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] task_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (task_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; task_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100[[/span]]; task_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (receiver);
+{{@@        @@}}free (string);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ((task_nbr [[span style="color:#666666"]]/[[/span]] [[span style="color:#666666"]]10[[/span]]) [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]10[[/span]] [[span style="color:#666666"]]==[[/span]] task_nbr)
+{{@@            @@}}printf ([[span style="color:#BA2121"]]":"[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"."[[/span]]);
+{{@@        @@}}fflush (stdout);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Total elapsed time: %d msec[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], 
+{{@@        @@}}([[span style="color:#B00040"]]int[[/span]]) (s_clock () [[span style="color:#666666"]]-[[/span]] start_time));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send kill signal to workers//[[/span]]
+{{@@    @@}}s_send (controller, [[span style="color:#BA2121"]]"KILL"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Finished//[[/span]]
+{{@@    @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Give 0MQ time to deliver//[[/span]]
+
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_close (controller);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,28 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Pubsub envelope publisher
+@@//@@{{@@  @@}}Note that the zhelpers.h file also provides s_sendmore
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and publisher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PUB);
+{{@@    @@}}zmq_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5563"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Write two messages, each with an envelope and content//[[/span]]
+{{@@        @@}}s_sendmore (publisher, [[span style="color:#BA2121"]]"A"[[/span]]);
+{{@@        @@}}s_send (publisher, [[span style="color:#BA2121"]]"We don't want to see this"[[/span]]);
+{{@@        @@}}s_sendmore (publisher, [[span style="color:#BA2121"]]"B"[[/span]]);
+{{@@        @@}}s_send (publisher, [[span style="color:#BA2121"]]"We would like to see this"[[/span]]);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here but clean up anyhow//[[/span]]
+{{@@    @@}}zmq_close (publisher);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

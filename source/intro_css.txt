@@ -1,0 +1,148 @@
+[[code type="CSS"]]
+#container-wrap {
+    width: 600px;
+    margin: 0 auto; /* to center the content */
+}
+#header {
+    height: 160px;
+    width: 600px;
+}
+ 
+#header h1 a span{
+    display: none;
+}
+ 
+#header h2 {
+    display: none;
+}
+ 
+#header h1 a,#header h1 a:hover{
+    background-image: url(/local--files/admin:css/logo.gif);
+    background-repeat: no-repeat;
+    height: 119px;
+    width: 381px;
+    position: absolute;
+    top: 35px;
+    left: 0em;
+}
+ 
+#top-bar {
+    display: none;
+}
+ 
+#side-bar {
+    display: none;
+}
+ 
+#main-content {
+    width: 600px;
+    padding: 0;
+    margin: 0;
+}
+#page-content { /* pushes the page options to the bottom of the screen */
+    min-height: 350px;
+}
+ 
+#page-title {
+    font-size: 220%;
+}
+ 
+h1 {
+    font-weight: bold;
+    font-size: 200%;
+}
+ 
+h2 {
+    font-weight: bold;
+    font-size: 180%;
+}
+ 
+h3 {
+   font-weight: bold;
+    font-size: 160%;
+}
+ 
+h4 {
+    font-weight: bold;
+    font-size: 140%;
+}
+ 
+h5 {
+    font-weight: bold;
+    font-size: 120%;
+}
+ 
+h6 {
+    font-weight: bold;
+    font-size: 100%;
+}
+ 
+sup {
+    vertical-align: top;  
+}
+ 
+sub {
+    vertical-align: bottom;  
+}
+ 
+#page-info {
+    display: none;
+}
+ 
+div.page-tags {
+    padding-top: 2em;
+}
+ 
+#footer { 
+    width: 600px;
+    padding: 0;
+    margin: 0;
+    margin-top: 15px;
+    font-size: 75%;
+    color: #777;
+}
+ 
+#toc {
+    background-color: transparent;
+    border-style: none;
+}
+ 
+blockquote,div.code {
+    background-color: transparent;
+    border-style: dotted;
+    border-color: #000000;
+    margin: 0.4em 0;
+}
+ 
+ul {
+    list-style-type: disc;
+}
+ 
+dt {
+    line-height: 400%;
+    font-weight: bold;
+}
+ 
+a {
+    text-decoration: none;
+    color: #CC0000;
+}
+ 
+a:hover {
+    text-decoration: none;
+    color: #CC0000;
+}
+ 
+a.newpage {
+    text-decoration: none;
+    color: #CC0000;
+}
+ 
+#login-status {
+    visibility: hidden;
+}
+ 
+#search-top-box {
+    visibility: hidden;
+}
+[[/code]]

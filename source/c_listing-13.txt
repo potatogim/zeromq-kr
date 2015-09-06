@@ -1,0 +1,14 @@
+[[div class="code"]]
+[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@    @@}}zmq_msg_t message;
+{{@@    @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]message);
+{{@@    @@}}zmq_recv (socket, [[span style="color:#666666"]]&[[/span]]message, [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process the message part//[[/span]]
+{{@@    @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]message);
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] more;
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] more_size [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]**sizeof**[[/span]] (more);
+{{@@    @@}}zmq_getsockopt (socket, ZMQ_RCVMORE, [[span style="color:#666666"]]&[[/span]]more, [[span style="color:#666666"]]&[[/span]]more_size);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]more)
+{{@@        @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Last message part//[[/span]]
+}
+[[/div]]

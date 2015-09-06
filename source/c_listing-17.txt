@@ -1,0 +1,3 @@
+[[div class="code"]]
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"Hello"[[/span]], [[span style="color:#666666"]]5[[/span]]);
+[[/div]]

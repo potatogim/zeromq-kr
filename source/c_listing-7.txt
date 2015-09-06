@@ -1,0 +1,5 @@
+[[div class="code"]]
+zmq_bind (socket, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+zmq_bind (socket, [[span style="color:#BA2121"]]"tcp:@@//@@*:9999"[[/span]]);
+zmq_bind (socket, [[span style="color:#BA2121"]]"ipc:@@//@@myserver.ipc"[[/span]]);
+[[/div]]

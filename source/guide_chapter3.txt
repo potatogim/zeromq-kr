@@ -1,0 +1,918 @@
+[[# Chapter-Three-Advanced-Request-Reply-Patterns]][[# header-47]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++ [#Chapter-Three-Advanced-Request-Reply-Patterns Chapter Three - Advanced Request-Reply Patterns]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+
+
+[#top top] [#header-46 prev] [#header-48 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+2장에서 우리는 매번 ØMQ새로운 측면을 탐구하면서 작은 응용프로그램들을 개발하여 기본적인 ØMQ를 사용해 봤습니다. 우리는 이 장에서 ØMQ's core request-reply pattern의 최고로 진보된 pattern을 탐구함으로써 이 접근을 계속할 것입니다. 
+
+본 장의 내용:
+
+* request-reply에 대한 메시지 envelop을 생성하고 사용하는 방법 
+* REQ, REP, DEALER, ROUTER 소켓들을 사용하는 방법
+* ID를 사용하여 수동으로 reply 주소를 설정하는 방법 
+
+* 사용자 임의의 분산형 라우팅을 수행하는 방법 
+* 가장 최근에 사용된 라우팅을 수행하는 방법 
+* 상위 수준의 메시지 class를 구축하는 방법 
+* 기초적인 request-reply broker를 구축하는 방법
+* 소켓들을 위한 좋은 이름을 선택하는 방법
+* Clients와 workers의 클러스터를 테스트하는 방법 
+* request-reply 클러스터의 확장 가능한 클라우드를 구축하는 방법 
+* 모니터링 스레드를 위한 pipeline 소켓들을 사용하는 방법
+
+[[# Request-Reply-Envelopes]][[# header-48]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Request-Reply-Envelopes Request-Reply Envelopes]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-47 prev] [#header-49 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+request-reply 패턴에서, envelope은 응답에서 응답주소를 가지고 있습니다. 이것은 상태가 없는 ØMQ network가 왕복 요청 응답 envelop을 어떻게 생성하는지 설명합니다.
+
+여러분은 사실 request-reply envelops가 일반적인 경우에 어떻게 사용하여 작업하는지 이해할 필요가 없습니다. 여러분이 REQ,REP를 사용할 때, 소켓은 자동으로 envelop을 만들고 사용합니다. 여러분이 디바이스를 쓸 때(우리가 마지막 장에 이것을 적용을 할 것입니다), 여러분은 메시지의 모든 부분을 읽고 쓰기 해야 합니다.  ØMQ는 다중 데이터를 사용하여 envelop을 구현하므로, 여러분이 안전하게 다중 데이터를 복사한다면, 그렇게 암시적으로 envelop을 복사하면 됩니다.
+
+그러나 후드를 얻고 request-reply envelop를 활용하는 것은 진보된 request-reply 작업을 위하여 필요합니다. envelop관점에서 ROUTER가 어떻게 작업하는지 설명하는 시간입니다. :
+
+* ROUTER socket으로부터 메시지를 받을 때, 이것은 "This came from Lucy." 라는 지울 수 없는 메시지와 낙서 주변의 갈색 종이 봉투로 쓰여져 있습니다. 그리고 여러분에게 전달됩니다. 즉, ROUTER socket은 그것에 대한 응답 주소를 가진 envelop에 싸여 여러분에게 제공합니다.
+
+* ROUTER socket에게 메시지를 보낼 때, 그것이 갈색 종이 봉투에서 떼어내어, 자체 필적 감정으로 읽으려고 시도하거나, “Lucy”가 누구인지 안다면 Lucy에게  다시 내용을 보냅니다. 이는 메시지 수신의 반대 과정입니다.
+
+* 만일 여러분 이 갈색봉투를 홀로 보내면, 그 다음 다른 ROUTER socket에게 그 메시지를 전달하고(예, ROUTER에 연결된 DEALER에게 보냄), 두 번째 ROUTER socket은 차례 차례 그 위에 다른 갈색 봉투를 붙일 것이고, 그 위에 DEALER 이름을 적습니다.
+
+요약하면 각 ROUTER는 올바른 목적지로 응답을 보내는 방법을 알고 있습니다. 여러분의 프로그램에서 필요한 것은 envelop을 기다리는 것 입니다. 이제 REP socket은 이해할 수 있을 것입니다. 이것은 조심스럽게 envelop을 열고 하나하나 안전하게 envelop을 옆에 두고 실 메시지는 여러분에게 제공합니다. 응답을 보낼 때 envelop에 응답을 재포장하고 ROUTER socket에게 전달합니다.
+
+request-reply 패턴에 ROUTER-DEALER 디바이스를 넣고자 한다면 다음과 같습니다. :
+
+[[code]]
+[REQ] <--> [REP]
+[REQ] <--> [ROUTER--DEALER] <--> [REP]
+[REQ] <--> [ROUTER--DEALER] <--> [ROUTER--DEALER] <--> [REP]
+...etc.
+[[/code]]
+
+여러분이 REQ socket에서 ROUTER socket으로 접속하고 요청 메시지 하나를 전송하면, 이것이 ROUTER socket으로부터 응답 받은 것입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig29.png]]
+
+잠시 설명하면:
+
+* 프레임 3의 data는 전송 프로그램이 REQ socket에 송신한 것입니다.
+
+* 프레임 2의 빈 메시지 부분은 ROUTER socket에 메시지를 보낼 때 REQ socket에의해 prepended 된 것 입니다.
+
+* 프레임 1의 응답 주소는 수신 프로그램에서 메시지가 지나가기 전에 ROUTER에 의해 prepended 된 것 입니다.
+
+이제 우리가 디바이스를 연결하여 확장한다면 우리는 stack의 처음에 있는 가장 최근의 envelope을 얻게 됩니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig30.png]]
+
+이제 여기 request-reply 패턴에서 사용하는 4가지  socket  유형에 대하여 좀 더 자세한 설명을 하겠습니다. :
+
+* DEALER는 모든 접속된 peers에 메시지를 load balancin하고, fair-queues는 수신한 메시지를 분배합니다. 이것은 PUSH,PULL socket 조합으로 구성 합니다.
+
+* REQ는 여러분이 보내는 모든 메시지에 빈 메시지 부분을 추가하고 여러분이 받는 각각의 메시지로부터 빈 메시지 부분을 제거합니다. 그것은 엄격하게 송신과 수신을 반복하는 것을 제외하고 DEALER처럼 동작합니다.
+
+* ROUTER는 어플리케이션에 보내기 전에 수신한 각 메시지의 응답 주소로 envelope을 추가합니다. 이것은 또한 전송한 각 메시지로부터 메시지 처음부분의 envelope을 잘라내고, 메시지가 어디로 가야 되는지 결정할 수 있도록 응답 주소로 이것을 사용합니다. 
+
+* 메시지를 받을 때 REP는 첫 번째 빈 메시지 부분에 모든 메시지 부분을 저장하고, 당신의 응용프로그램에 나머지(데이터)를 전달합니다. 당신은 응답을 보낼 때 REP는 메시지에 저장된 envelop을 추가하고, ROUTER 처럼 동일한 의미로 사용하여 그것을 다시 보내지만 (사실 REP는 ROUTR 위에 구축합니다), REQ와 매치되어야 하며, 엄격한 receive / send 주기로 처리합니다.   
+
+REP는 빈 메시지 부분을 가진 envelop 끝이 있어야 합니다. 만일 당신이 연결된 상대의 REQ를 사용하지 않는 경우 당신이 빈 메시지 부분을 직접 추가해야 합니다. 
+
+따라서 ROUTER에 대한 명백한 질문은, 그것이 어디로부터 응답 주소를 얻습니까 입니다. 그리고 확실한 대답은, 그것은 소켓의 ID를 사용한다 입니다. 우리는 이미 배운 대로, 소켓은 //다른// 소켓이 그 소켓과 연관을 맺을 수 있는 임의 ID를 생성하는 경우 는 일시적 일 수 있습니다. 또는, 소켓은 다른 소켓 자체 ID를 명시적으로 보내면 영속적일 수 있으며, ROUTER는 임시 레이블을 생성하는 것 보다는 이것을 사용 할 수 있습니다.
+
+이것은 transient 소켓 입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig31.png]]
+
+이것은 durable 소켓 입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig32.png]]
+
+실제로 두 경우를 관찰합시다. 이 프로그램은 ROUTER 소켓이 하나는 ID를 사용하지 않고, 하나는 “Hello” ID를 사용하는 두 개의 REP 소켓으로부터 받는 메시지 부분의 내용을 보여줍니다. :
+
+[[collapsible show="identity: Identity check in C" hide="identity: Identity check in C"]]
+[[include c:identity]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:identity C++] | [*http://zguide.zeromq.org/cs:identity C#] | [*http://zguide.zeromq.org/clj:identity Clojure] | [*http://zguide.zeromq.org/lisp:identity CL] | [*http://zguide.zeromq.org/es:identity Erlang] | [*http://zguide.zeromq.org/fsx:identity F#] | [*http://zguide.zeromq.org/hx:identity Haxe] | [*http://zguide.zeromq.org/lua:identity Lua] | [*http://zguide.zeromq.org/php:identity PHP] | [*http://zguide.zeromq.org/py:identity Python] | [*http://zguide.zeromq.org/rb:identity Ruby] | [*http://zguide.zeromq.org/scala:identity Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl][[/size]]
+
+이것은 dump function의 화면입니다. :
+
+[[code]]
+----------------------------------------
+[017] 00314F043F46C441E28DD0AC54BE8DA727
+[000]
+[026] ROUTER uses a generated UUID
+----------------------------------------
+[005] Hello
+[000]
+[038] ROUTER socket uses REQ's socket identity
+[[/code]]
+
+[[# Custom-Request-Reply-Routing]][[# header-49]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Custom-Request-Reply-Routing Custom Request-Reply Routing]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-48 prev] [#header-50 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 어떤 클라이언트가 응답을 주기 위한 루트를 결정하기 위하여 envelop(message envelope)을 사용하는걸 이미 보았습니다. 이제 다른 방안을 살펴 보겠습니다. : //만약 제대로 작성된 envelop을 통해 바른 라우팅 주소를 제공한다면 ROUTER는 그것에 연결된 모든 peer에 비동기적으로 메시지를 라우팅 할 것 입니다.//
+
+그래서 ROUTER는 실제로 완전히 제어 가능한 라우터 입니다. 우리는 자세하게 이 마술을 파악할 것 입니다.
+
+그러나 먼저 우리가 거칠고 포장되지 않은 off-road로 갈 것이기 때문에, REQ와 REP를 좀더 자세히 보도록 하겠습니다. 일부 사람은 알겠지만, 메시징의 유치원 접근에도 불구하고, REQ 와 REP는 실제적으로 화려한 특성이 있습니다. :
+
+* REQ는 **mama** SOCKET으로써 응답을 제외하고는 listen하지 않는다.mama는 엄격한 SYNC이며, 요청처리를 합니다. 
+
+* REP는 **papa** SOCKET으로써 항상 응답을 하지만 절대 대화를 시작하지 않습니다. papa는 엄격한 SYNC이며, 응답처리를 합니다.
+
+우리가 일반적으로 to-and-fro 패턴으로 request-reply을 생각하는 동안에 사실, 이것은 우리가 어떤 mama나 papa가 항상 Sync이고, 중간이 아닌 체인의 끝에 있다는 것을 이해하는 동안 완전한 ASync입니다. 우리가 알아야 할 모든 것은 통신하려는 peer의 주소이며, 그리고 우리는 다음 라우터를 통해 ASync로 메시지를 보낼 수 있습니다. 라우터는 하나이고 오직 ØMQ socket type은 “X에게 이 메시지를 보내”라고 말할 수 있는 능력이 있습니다.
+
+메시지를 보낼 주소를 알 수 있는 방법이 있으며, 대부분의 custom request-reply 라우팅 예제에서 사용되어지는 것을 볼 것입니다:
+
+* 만약 transient socket(즉 아무 ID도 설정하지 않은)이라면, 라우터는 UUID를 생성할 것이며, 들어오는 요청 envelop을 전달할 때 접속을 참조하기 위하여 사용합니다.
+
+* 만약 durable socket이라면 라우터는 들어오는 요청 envelop을 전달할 때 peer의 ID를 줄 것입니다.
+
+* 명시적인 ID를 가진 peer는 다른 소켓을 통하여 다른 메커니즘으로 이것을 송신할 수 있습니다.
+
+* Peer는 환경설정 파일이나 다른 방법을 통해 각각의 ID에 대한 사전정보를 가질 수 있습니다.
+
+우리는 쉽게 라우터에 접속할 수 있는 각 소켓 형태 하나 마다 적어도 3개의 라우팅 패턴이 있습니다. :
+
+* Router-to-dealer.
+* Router-to-mama (REQ).
+* Router-to-papa (REP).
+
+이런 각각의 경우 우리가 메시지를 어떻게 라우팅 할지에 대하여 전체적인 제어를 가지고 있지만 다른 패턴에 대하여 다른 사용 사례와 메시지 흐름을 통하여 보완하여야 합니다. 다른 알고리즘의 예제인 다음 섹션을 통해 그것을 분석해 봅시다.
+
+사용자 라우팅에 대한 최초의 몇 가지 경고들 :
+
+* 이것은 ØMQ룰에 어긋납니다: //소켓에 peer 주소지정을 위임한다.// ØMQ가 다양하고 광범위한 라우팅 알고리즘 면에서는 부족하기 때문에 우리가 할 유일한 이유 입니다. 
+
+* ØMQ 향후 버전에는 아마도 우리가 여기서 만들려고 하는 라우팅을 제공할 것입니다. 우리가 지금 설계하는 코드는 향후에 중복되거나 없어질 수 있습니다.
+
+* 이미 작성된 라우팅은 디바이스에 친화적인 것과 같은 확정성의 보장을 가지고 있으나 사용자 지정 라우팅은 그렇지 못합니다. 여러분은 당신의 디바이스에 맞게 만들어야 합니다.
+
+그래서 사용자 지정 라우팅은 이것을 ØMQ에 위임하는 것 보다 비싸며 깨지기 쉽습니다. 필요할 때만 사용하기 바랍니다. 언급한대로, 물에 뛰어들어야만이 물의 위대함을 알 수 있습니다.
+
+[[# Router-to-Dealer-Routing]][[# header-50]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Router-to-Dealer-Routing Router-to-Dealer Routing]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-49 prev] [#header-51 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+router-to-dealer 패턴은 가장 간단합니다. 여러분은 한 라우터 에서 여러 딜러에 접속하고, 여러분이 선호하는 어떤 알고리즘을 사용하여 딜러들에게 메시지를 분산합니다. 딜러는 sink(응답 없이 메시지 처리)일수 있고 프락시(다른 노드에 메시지 보내기) 혹은 서비스(응답 전송)가 될 수 있습니다.
+
+만약 딜러의 응답을 기대한다면 한 라우터만 그것에게 요청해야 합니다. 딜러는 특정한 peer에 어떻게 응답하는지 모르며, 그래서 그들이 복수의 peers를 가졌다면 예언한 것처럼 그들은 그들간에 load-balance을 할 것입니다. 딜러가 sink이면, 모든 라우터는 그것에 통신할 수 있습니다.
+
+당신은 router-to-dealer 패턴에 어떤 종류의 라우팅을 할 수 있습니까? 만약 딜러가 라우터에게 응답을 했다면, 즉 타스크가 끝났을 때 라우터에게 알려주는 것, 여러분은 딜러가 얼마나 빠른지에 따라 라우팅을 위한 정보로 사용할 수 있습니다. 라우터와 딜러가 모두 ASync이기 때문에 조금 까다로울 수 있습니다. 여러분은 결국 [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]을 사용할 것입니다. 
+
+우리는 딜러가 응답하지 않는 예제를 만들 것입니다. 그들은 순수한 sink입니다. 우리의 라우팅 알고리즘은 weighted random scatter가 될 것입니다:우리는 두 개의 딜러를 가지고 다른 쪽에 보내 것보다 한쪽에 2배의 메시지를 보냅니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig33.png]]
+
+여기 이것이 어떻게 동작하는지 보여주는 코드를 봅시다. : 
+
+[[collapsible show="rtdealer: Router-to-dealer in C" hide="rtdealer: Router-to-dealer in C"]]
+[[include c:rtdealer]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:rtdealer C++] | [*http://zguide.zeromq.org/cs:rtdealer C#] | [*http://zguide.zeromq.org/clj:rtdealer Clojure] | [*http://zguide.zeromq.org/lisp:rtdealer CL] | [*http://zguide.zeromq.org/es:rtdealer Erlang] | [*http://zguide.zeromq.org/fsx:rtdealer F#] | [*http://zguide.zeromq.org/hx:rtdealer Haxe] | [*http://zguide.zeromq.org/java:rtdealer Java] | [*http://zguide.zeromq.org/lua:rtdealer Lua] | [*http://zguide.zeromq.org/php:rtdealer PHP] | [*http://zguide.zeromq.org/py:rtdealer Python] | [*http://zguide.zeromq.org/rb:rtdealer Ruby] | [*http://zguide.zeromq.org/scala:rtdealer Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | Go | Haskell | Node.js | Objective-C | ooc | Perl][[/size]]
+
+이 코드에 대한 몇가지 설명:
+
+* 라우터는 딜러가 준비 되었는지를 알지 못합니다, 그리고 그렇게 하기 위한 신호를 추가하는 것은 예제에 혼란을 줄 것 입니다. 그래서 라우터는 딜러 스레드가 시작한 후  단지 “sleep(1)”을 합니다. 이 sleep이 없다면 라우터는 라우팅 할 수 없는 메시지를 송신할 것이고 ØMQ는 그것을 버릴 것입니다.
+
+* 이 문제는 라우터 소켓에만 해당됨을 주의하세요. PUB 소켓은 subscriber가 없다면 메시지를 버릴 것입니다. 그러나 그 외 소켓유형은 메시지를 수신할 peer가 존재할 때까지 메시지를 queue에 송신 합니다.
+
+딜러에 라우팅하기 위해서, 우리는 이처럼 envelope을 생성합니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig34.png]]
+
+라우터 소켓은 첫 번째 프레임을 제거하고 딜러가 현재 얻는 두 번째 프레임을 송신합니다. 딜러가 라우터에게 메시지를 송신할 때 하나의 프레임을 송신합니다. 라우터는 딜러의 주소를 매달고 두 개의 부분으로 비슷한 envelop을 보냅니다.
+
+주의할 것들 : 여러분이 잘못된 주소를 사용한다면, 라우터는 조용하게 메시지를 버립니다. 많지 않지만 그것은 유용하게 할 수 있습니다. 정상적인 경우에 이것은 peer를 사라지게 하거나, 프로그램 에러가 어딘가에 있고 잘못된 주소를 사용하고 있다는 의미입니다. 어떤 경우에 당신은 목적지 노드에서 어떤 종류의 응답이든 받을 때까지는 성공적으로 라우트된 메시지를 얻을 수 없다고 가정할 수 없습니다. 우리는 나중에 신뢰할 수 있는 패턴을 만들어 볼 것입니다. 
+
+딜러는 사실 정확하게 PUSH 와 PULL 조합으로 동작합니다. 그러나 request-reply소켓에 PULL나 PUSH로 접속하는 것은 무의미합니다.
+
+[[# Least-Recently-Used-Routing-LRU-Pattern]][[# header-51]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Least-Recently-Used-Routing-LRU-Pattern Least-Recently Used Routing (LRU Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-50 prev] [#header-52 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리가 얘기한 바와 같이 MAMAS(REQ 소켓)는 당신 말을 듣지 안으며 당신이 돌려 말하려고 하면 무시할 것입니다. 여러분은 어떤 것을 얘기하기 위해 기다려야만 하고, 그 다음 당신은 비꼬는 대답을 줄 수 있습니다. 그것은 우리가 답변을 기다리는 MAMAS들을 유지할 수 있다는 의미이기 때문에 라우팅에 매우 유용합니다. 효과적으로, 그들이 준비 되었을 때 MAMAS는 우리에게 알려줍니다.
+
+당신은 여러 MAMAS에 하나의 라우터를 접속할 수 있고 딜러에게 메시지를 분산할 수 있습니다. MAMAS는 보편적으로 응답하기를 원할 것이지만, 그들은 당신에게 한번에 마지막 단어 하나만을 갖게 할 것입니다. :
+
+* Mama speaks to router
+* Router replies to mama
+* Mama speaks to router
+* Router replies to mama
+* etc.
+
+딜러와 같이, MAMAS는 한 라우터와 통신할 수 있으며, MAMAS는 항상 라우터와 통신하는 것으로 시작합니다, 당신은 multi-pathway redundant routing과 같이 기발하지 하지 않다면 여러 개의 라우터에 하나 이상의 MAMA 접속을 결코 하지 않아야 합니다. 나는 지금 그것을 설명하려 하지 않으며, 다행히 JARGON은 당신이 필요할 때까지의 노력을 기울이는 것을 그만두게 할 만큼 충분히 복잡합니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig35.png]]
+
+여러분이 router-to-mama패턴으로 할 수 있는 라우팅의 종류는 무엇입니까? 아마도 가장 명백한 것은 우리가 항상 가장 오랬동안 기다려 왔던 mama에게 라우팅하는 “least-recently-used”(LRU)입니다. 여기 한 세트의 mama에게 LRU 라우팅을 하는 예제가 있습니다. :
+
+[[collapsible show="rtmama: Router-to-mama in C" hide="rtmama: Router-to-mama in C"]]
+[[include c:rtmama]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:rtmama C++] | [*http://zguide.zeromq.org/cs:rtmama C#] | [*http://zguide.zeromq.org/clj:rtmama Clojure] | [*http://zguide.zeromq.org/lisp:rtmama CL] | [*http://zguide.zeromq.org/es:rtmama Erlang] | [*http://zguide.zeromq.org/fsx:rtmama F#] | [*http://zguide.zeromq.org/hx:rtmama Haxe] | [*http://zguide.zeromq.org/lua:rtmama Lua] | [*http://zguide.zeromq.org/php:rtmama PHP] | [*http://zguide.zeromq.org/py:rtmama Python] | [*http://zguide.zeromq.org/rb:rtmama Ruby] | [*http://zguide.zeromq.org/scala:rtmama Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl][[/size]]
+
+이 예제에서, 우리는 어떤 것으로 workers와 동기화할 필요가 없기 때문에 LRU는 ØMQ가 우리에게 무엇을 주는 것 이상으로 어떤 정형화된 데이터 구조가 필요하지 않습니다. 좀 더 현실적인 LRU 알고리즘은 큐에 준비된 만큼 worker가 수집해야만 하고, 이것은 클라이언트 요청을 라우팅 할 때 사용합니다. 우리는 나중 예제에서 이것을 할 것입니다.
+
+LRU가 예상한 것과 같이 동작하는지 증명하기 위해, mama는 그들이 하는 전체 테스크를 출력합니다. mama가 임의의 동작 수행하는 이래로, 우리는 load balancin을 하지 않습니다. 우리는 각각의 mama가 임의의 변수를 가졌지만 같은 합계에 근접할 것으로 기대합니다. 이것이 결과 입니다.  :
+
+[[code]]
+Processed: 8 tasks
+Processed: 8 tasks
+Processed: 11 tasks
+Processed: 7 tasks
+Processed: 9 tasks
+Processed: 11 tasks
+Processed: 14 tasks
+Processed: 11 tasks
+Processed: 11 tasks
+Processed: 10 tasks
+[[/code]]
+
+위 코드에대한 설명
+
+* 모두 준비되었을 때 MAMAS가 router에게 명시적으로 통신하는 이래로, 어떤 정해진 시간이 필요하지 않습니다. 
+
+* 우리는 zhelpers.h의 s_set_id를 사용하여 출력 가능한 문자열로 우리의 ID를 생성합니다. 그것은 우리의 인생을 좀더 간단하게 만듭니다. 실제 application에서 MAMAS는 완전히 익명이 될 것이고 여러분은 오직 문자열로만 제어할 수 있는 zhelpers의 s_recv()와 s_send() function 대신에 직접적으로 [http://api.zeromq.org/2-1:zmq_recv zmq_recv(3)]와 [http://api.zeromq.org/2-1:zmq_send zmq_send(3)]를 호출합니다.
+
+* 더 나쁜것은, 임의의 ID를 사용하는 것입니다. 실제 코드에서 이와 같이 하지 말기 바랍니다. //무작위로// 영속적인 소켓은 실제 상황에서는 좋지 않습니다. 그들은 소모되어 지고 결국 node는 죽일 것입니다. 
+
+* 이해하지 못하고 예제 코드를 복사, 붙이기 한다면 무슨 가치가 있겠는가!. 그것은 스파이더맨이 지붕 위를 점프하는 것을 보는 것과 같을 당신이 그것을 시도하는 것과 같습니다.
+
+mama에게 라우팅하기 위하여 우리는 이처럼 mama-friendly한 envelop을 만들어야 한다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig36.png]]
+
+[[# Address-based-Routing]][[# header-52]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Address-based-Routing Address-based Routing]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-51 prev] [#header-53 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Papas는 우리가 그들에게 관심이 있다면, 거기에 대한 대답만 할뿐 입니다. 그리고 mama는 정비소에 차를 몰고 가서 고치고 청구서를 지불하며, 비가 올 때 개와 산책합니다. 그러나 이것과는 대조적으로 Papas는 단지 질문에 대한 대답만 합니다. 
+
+전통적인 request-reply패턴에서 라우터는 전혀 papa 소켓과 통신하지 않지만, 오히려 그것을 위한 일을 할 딜러를 얻습니다. 그래서 딜러가 하는 것이 이것입니다:임의의 papa에게 질문을 전달하고 그들의 답변을 돌려 받는다. 라우터는 전체적으로 mama에게 통신하기에 좀더 안정적입니다. 됐습니다. 여러분, 정신분석을 멈추십시오. 인생 이야기는 아니지만 유사함이 있습니다.
+
+이것은 고전적 패턴으로 가장 잘 동작하는 ØMQ로 기억할 만한 가치가 있습니다, 우리가 절벽에서 떨어지고 좀비에게 먹히는 위험을 감수하고 비포장 도로로 가듯 하나씩 밟아가는 이유가 있습니다. 말하자면, 라우터에 papa를 적용하고, 어떻게 되는지 보겠습니다. 
+
+농담은 그만하고, papas에 대한 특별한 것은 실제로 두 가지가 있습니다. :
+
+* 첫째, 그들은 엄격하게 융통성 없는 request-reply 입니다.
+* 둘째, 그들은 어떤 크기의 envelope을 받고, 원본을 그대로 리턴 할 것입니다.
+
+정상 request-reply패턴에서 papa는 익명이고 교체 가능합니다(와우! 이런 유추는 겁납니다)그러나 우리는 사용자 지정 라우팅에 대하여 배우고 있습니다. 그래서 이 경우에 papa B보다 papa A에 요청을 보낼 이유를 가지고 있습니다. 큰 네트워크의 한쪽 끝에서 여러분간에 어떤 종류의 대화를 유지하기 원한다면 이것을 필수입니다. 그리고 papa는 멀리 어딘가에 자리 잡고 있습니다.
+
+ØMQ의 핵심 철학은 끝은 똑똑하고 많으며 중간은 광대하고 광활하다 입니다. 이것은 끝은 각자 서로 주소를 가질 수 있음을 뜻하고 그리고 이것은 또한 우리가 주어진 papa에 도달하는 방법을 알기 원한다는 것을 뜻합니다. 여러 hop을 통과하여 라우팅 하는 것은 우리가 나중에 살펴볼 것입니다. 그러나 우리는 지금 마지막 단계에서 볼 것은 라우터가 특정papa와 통신하는 것입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig37.png]]
+
+이 예제는 매우 특별한 이벤트 고리를 보여줍니다. :
+
+* 클라이언트는 어떤 노드에 라우팅 할 메시지를 가지고 있습니다.그 메시지는 empty part과 body의 두 주소를 가집니다.
+* 클라이언트는 그것을 라우터에게 전달하지만 먼저 papa 주소를 명시한다.
+* 라우터는 papa가 메시지 보내기를 결정하는데 사용되는 papa 주소를 삭제합니다.
+* Papa는 addresses, empty part, body를 수신합니다.
+* 그것은 주소를 삭제하고 그것은 저장하고 worker에게 body를 전달합니다.
+* Worker는 papa에게 응답을 송신합니다.
+* Papa는 envelop 스택을 재생성하고 그것을 worker의 응답과 함께 라우터에게 보냅니다.
+* 라우터는 papa의 주소를 추가하고 주소 스택의 나머지,empty part,그리고 body과 함께 클라이언트에 보냅니다.
+
+그것은 복잡하지만 당신이 이해할 만한 가치가 있습니다. 단지 papa는 GIGO(garbage in, garbage out) 라는 것을 기억하세요.
+
+[[collapsible show="rtpapa: Router-to-papa in C" hide="rtpapa: Router-to-papa in C"]]
+[[include c:rtpapa]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:rtpapa C++] | [*http://zguide.zeromq.org/cs:rtpapa C#] | [*http://zguide.zeromq.org/clj:rtpapa Clojure] | [*http://zguide.zeromq.org/lisp:rtpapa CL] | [*http://zguide.zeromq.org/es:rtpapa Erlang] | [*http://zguide.zeromq.org/fsx:rtpapa F#] | [*http://zguide.zeromq.org/hx:rtpapa Haxe] | [*http://zguide.zeromq.org/lua:rtpapa Lua] | [*http://zguide.zeromq.org/php:rtpapa PHP] | [*http://zguide.zeromq.org/py:rtpapa Python] | [*http://zguide.zeromq.org/rb:rtpapa Ruby] | [*http://zguide.zeromq.org/scala:rtpapa Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl][[/size]]
+
+프로그램을 실행결과 입니다. :
+
+[[code]]
+----------------------------------------
+[020] This is the workload
+----------------------------------------
+[001] A
+[009] address 3
+[009] address 2
+[009] address 1
+[000]
+[017] This is the reply
+[[/code]]
+
+이 코드에 대한 몇 가지 설명 입니다. :
+
+* 실제로 우리는 구분된 노드에 papa와 라우터를 가집니다. 이 예제는 이벤트의 순차를 만들기 때문에 하나의 스레드로 되어 있습니다.
+
+* [http://api.zeromq.org/2-1:zmq_connect zmq_connect(3)]는 즉시 일어나지 않습니다. Papa 소켓이 라우터에 접속할 때 얼마의 시간이 걸리고 이것은 background로 처리됩니다. 실제 application에서 라우터는 통신이 이루어져야 papa의 존재를 알게 됩니다. 예제에서 우리는 접속을 정확히 하기 위하여 {{sleep(1)}}을 사용할 것입니다. Sleep을 제거한다면 papa 소켓은 메시지를 얻지 못할 것 입니다. (한번 해보세요)
+
+* 우리는 papa의 ID를 사용하여 라우팅 합니다. 이것이 실제로 그런지 검증하기 위해 “B”와 같이 잘못된 주소를 전송해 보세요. Papa는 메시지를 얻지 못할 것입니다.
+
+* S_dump와 다른 utility function은 zhelpers.h 헤더 파일에 있습니다. 그리고 ØMQ API외에 개발 할 수 있는 흥미로운 레이어가 있습니다. 우리는 나중에 이런 장난감 예제보다 실제 application을 만들 때 다룰 것입니다.
+
+papa에게 라우팅 하기 위해, 우리는 이와 같은 papa-friendly envelop을 만들어야 합니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig38.png]]
+
+[[# A-Request-Reply-Message-Broker]][[# header-53]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#A-Request-Reply-Message-Broker A Request-Reply Message Broker]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-52 prev] [#header-54 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 지금까지 ØMQ 메시지 envolopes와 함께 다루었던 내용의 개요를 언급하고, //message broker//라고 불릴 수 있는 일반적인 //custom routing queue//의 핵심을 만들 것입니다. 전문용어를 사용해서 미안합니다. 우리가 만들 것은 //clients//와 workers를 연결하는 //queue device//입니다. 그리고 여러분이 원하는 //라우팅 알고리즘//을 사용해 봅시다. 우리가 할 것은 //least-recently used//입니다.
+
+
+먼저, 고전적인 request-reply패턴을 다시 봅시다. 그리고 크고 큰 service-oriented network를 통해 확장하는 방법을 살펴보도록 하겠습니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig39.png]]
+
+이것은 다중 papas로 뻗어 있지만, 만약 다중 mamas를 처리하기를 원한다면 우리는 중간에 device가 필요합니다. 이것은 가능한 빠르게 두 소켓 사이에 메시지를 복사하는 전통적인 ZMQ_QUEUE device에 의해 연결되는 라우터와 뒤에 잇따른 딜러로 구성됩니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig40.png]]
+
+여기서 핵심은 라우터가 요청 envelope에 있는 원래 mama주소를 저장합니다, 딜러와 papa는 그것을 건드리지 않습니다. 그래서 라우터는 응답을 보낼 mama를 압니다. Papas는 anonymous이며, 이 패턴에서 주소를 사용하지 않습니다, 모든 ,papas는 동일한 서비스를 제공한다고 가정합니다. 
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig41.png]]
+
+우리 브로커(a router-to-router LRU queue)는 메시지 일부를 맹목적으로 복사할 수 없습니다. 아래에 코드가 있으며, 여기 핵심로직은  매우 복잡하지만 핵심 논리 LRU 라우팅을 수행하기를 원하는 어떤 request-reply broker에 재사용 할 수 있습니다.
+
+이 프로그램의 어려운 부분은 (A)각 소켓이 읽고 쓰는 envelopes와 LRU알고리즘 입니다. 우리는 순서대로 이것들을 다룰 것입니다. 메시지 envelope 포맷을 시작하겠습니다.
+
+첫째, mama REQ 소켓은 항상 보낼 때 empty part(the envelope delimiter)를 넣고 받을 때 empty part를 제거한다는 것을 기억하세요. 이에 대한 이유는 중요하지 않습니다, 정상적은 request-reply패턴의 일부입니다. 
+여기서 주의할 것은 mama가 원하는 것을 할 수 있도록 하는 것입니다. 둘째, 라우터는 메시지가 온 주소로 envelope을 추가합니다. 
+
+우리는 지금 클라이언트에서 노동자까지의 완전한 request-reply 연결을 통하게 할 수 있습니다. 코드에서 우리가 원한다면 쉽게 메시지 프레임을 인쇄할 수 있도록 클라이언트와 노동자 소켓의 ID을 설정합니다. 가자는 클라이언트의 ID가 "CLIENT"이고 노동자의 ID은 "WORKER"라고 가정합니다. 클라이언트는 하나의 프레임을 보냅니다. :
+
+[[collapsible show="lruqueue: LRU queue broker in C" hide="lruqueue: LRU queue broker in C"]]
+[[include c:lruqueue]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:lruqueue C++] | [*http://zguide.zeromq.org/cs:lruqueue C#] | [*http://zguide.zeromq.org/clj:lruqueue Clojure] | [*http://zguide.zeromq.org/lisp:lruqueue CL] | [*http://zguide.zeromq.org/es:lruqueue Erlang] | [*http://zguide.zeromq.org/fsx:lruqueue F#] | [*http://zguide.zeromq.org/hx:lruqueue Haxe] | [*http://zguide.zeromq.org/java:lruqueue Java] | [*http://zguide.zeromq.org/lua:lruqueue Lua] | [*http://zguide.zeromq.org/php:lruqueue PHP] | [*http://zguide.zeromq.org/py:lruqueue Python] | [*http://zguide.zeromq.org/scala:lruqueue Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby][[/size]]
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig42.png]]
+
+ 라우터 프론트엔드 소켓에서 읽을 때 큐에서 가져온 것 입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig43.png]]
+
+Broker는 LRU queue에서 가져와 worker의 주소와 empty part를 앞에 붙이고 끝의 mama는 유지하여 worker에게 보냅니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig44.png]]
+
+이 복잡 한 큐 스택은 첫 번째 프레임을 제거 하는 백 엔드 라우터 소켓에 의해 처리됩니다. 다음 작업자에 있는 mama 소켓은 빈 부분을 제거 하고 작업자에게 나머지를 제공 합니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig45.png]]
+
+이것은 큐가  frontend router socket 자체에서 받은 것과 정확히 동일한 것입니다. Worker는 envelope을 저장하고(empty part를 포함한 전체)  데이터 부분을 가지고 필요한 작업을 합니다.
+
+반환될 때 메시지는 그들이 받은 것과 동일합니다, 즉 backend소켓은 5개 부분으로 된 메시지를 큐에 주고, 큐는 3부분으로 된 메시지를 frontend 소켓에 보내고, client는 한 부분으로 된 메시지를 받습니다.
+
+이제 LRU알고리즘을 살펴 봅시다. Clients와 workers는 mama소켓을 사용해야 하고, workers는 정확하게 그들이 수신한 메시지에 envelops을 저장하고 재 처리해야 합니다. 이 알고리즘은 다음과 같습니다.
+
+* 항상 backend와 가용한 한 개 이상의 worker가 있는 frontend를 폴링하는 pollset을 만듭니다.
+
+* 무제한 타임아웃으로 처리하도록 폴링 합니다.
+
+*  backend 처리에서는 “ready”메시지나 client를 위한 응답을 가집니다. 이 두 경우에 우리는 LRU queue에 worker주소(처음부분)를 저장하며, 만약 마지막 부분에 client응답이 있다면 우리는 frontend로 그것을 되돌려 보냅니다.
+
+* frontend처리에서 우리는 client 요청을 가져오고 가장 최근에 사용된 다음 worker를 팝업하고, backend에 요청을 보냅니다. 이것은 worker주소, empty part 그리고 client요청의 3 부분을 보낸다는 의미입니다. 
+
+여러분은 worker가 초기 ‘ready’메시지에서 제공하는 정보를 기반으로 하는 변화로 LRU알고리즘을 재사용하고 확장할 수 있게 되었습니다. 예를 들어, worker는 시작하고 자체 테스트를 수행한 다음, 그들이 얼마나 빠른지 broker에게 알려줍니다. Broker는 LRU나 round-robin보다는 가용한 가장 빠른 worker를 선택할 수 있습니다.
+
+[[# A-High-Level-API-for-MQ]][[# header-54]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#A-High-Level-API-for-MQ A High-Level API for ØMQ]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-53 prev] [#header-55 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+기본 ØMQ API를 사용하여 다중 메시지를 읽고 쓰는 것은 이쑤시개를 사용하여, 프라이드 치킨과 여분의 야채와, 뜨거운 국수 국물 한 그릇을 먹는 것과 같습니다. :
+
+[[include c:listing_20]]
+
+이 코드는 단지 한 envelope을 사용할 수 있기 때문에, 재사용할 수 없습니다. 이 코드는 이미 ØMQ API로 랩핑(wrapping) 했습니다. 만약 우리가 직접적으로 libzmq API를 사용했다면 아래와 같이 될 것입니다. :
+
+[[include c:listing_21]]
+
+우리가 원하는 것은 우리 모든 envelopes을 포함 하여 한 번에 전체 메시지를 보내고 받을 수 있는 API이며, 코드라인을 최소화 하고 싶어합니다. ØMQ 핵심 API들은 이것을 목표로 하지 않지만, 그 위에 layer를 만드는 것을 막지 않으며, 지능적인 ØMQ를 사용하는 학습부분은 정확하게 도움이 될 것입니다.
+
+좋은 메시지 API를 만드는 것은 상당히 까다로우며, 만약 너무 많이 데이터를 복사하는 것을 피하려고 한다면 특히 더 그렇습니다. 우리는 기술적인 문제를 가지고 있습니다 : ØMQ는 다중 메시지와 메시지의 개별적인 부분을 모두 설명하기 위해 ‘message’를 사용합니다. 우리는 의미론적인 문제가 있습니다 : 가끔은 2진 blob으로 때로는 출력 가능한 문자열 데이터로써 메시지 내용을 보는 것은 자연스러운 것입니다.
+
+그래서 하나의 솔루션은 세가지 개념을 사용하려 합니다 : //string// (이미 s_send 및 s_recv를 위한 기반), //frame// (메시지 부분) 및 //message// (하나 이상의 frame 목록). 이러한 개념을 사용하여 API를 다시 작성한  코드는 다음과 같습니다. :
+
+[[include c:listing_22]]
+
+22라인을 교체하면 결과가 이해하기 쉽고 읽기 쉽기 때문에 좋습니다. 우리는 ØMQ를 가지고 다른 측면에서의 접근도 이 프로세스로 계속할 수 있습니다. 우리가 만들고 싶어 하는 높은 수준의 API 를 만들어 봅시다. 
+
+* //Automatic handling of sockets.// 소켓을 수동을 닫으려면 정말 성가신 일이며, 모든 경우는 아니지만 일부 시간이 걸리는 타임아웃을 설정해야 합니다. Context를 닫을 때 자동으로 소켓이 닫게 하는 방법을 가지는 것이 가장 좋습니다. 
+
+* //Portable thread management.// 모든 잘 만들어진 ØMQ어플리케이션은 스레드를 사용지만, POSIX 스레드는 portable하지 않습니다. 그래서 높은 수준의 API는 portable layer에 이것을 숨기려 합니다.
+
+* //Portable clocks.//  심지어 millisecond단위로 시간처리를 하거나, millisecond단위로 sleeping을 하는 것은 portable하지 않습니다. 현실적인 ØMQ 응용 프로그램은 portable clocks이 필요하며, 그래서 우리 API는 이것을 제공합니다. 
+
+* //A reactor to replace [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)].// Poll 루프는 좀 어색하지만 간단합니다. 이것을 많이 사용하면, 우리는 반복해서 결국 동일한 작업을 하게 됩니다 : 시간을 계산하고, 소켓이 준비되었을 때 코드를 호출합니다. Reactor와 timer는 많은 반복된 작업을 줄여 줍니다.
+
+* //Proper handling of Ctrl-C.// 우리는 이미 인터럽트를 얻는 방법을 보았습니다. 모든 응용프로그램에서 이것이 발생한다면 유용할 것입니다. 
+
+위 리스트는 ØMQ에서 높은 수준의 C API인 [http://zero.mq/c czmq]로 제공합니다. 사실이 높은 수준의 바인딩은 이전 버전의 가이드에서 개발했습니다. 
+
+czmq를 사용하여 재작성한 LRU queue broker 입니다. :
+
+[[collapsible show="lruqueue2: LRU queue broker using czmq in C" hide="lruqueue2: LRU queue broker using czmq in C"]]
+[[include c:lruqueue2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cs:lruqueue2 C#] | [*http://zguide.zeromq.org/hx:lruqueue2 Haxe] | [*http://zguide.zeromq.org/lua:lruqueue2 Lua] | [*http://zguide.zeromq.org/php:lruqueue2 PHP] | [*http://zguide.zeromq.org/py:lruqueue2 Python] | [*http://zguide.zeromq.org/scala:lruqueue2 Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | Clojure | CL | Erlang | F# | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl | Ruby][[/size]]
+
+czmq에서 제공하는 한가지는 완벽한 인터럽트를 처리한다는 것입니다. 이것은 Ctrl-C가 리턴코드 -1과 에러번호를 EINTR으로 설정하여 종료하도록 어떤 blocking  ØMQ를 발생시키게 한다는 의미 입니다. czmq의 recv메소드는 이러한 경우에 NULL을 리턴할 것이며, 여러분은 아래처럼 루프를 깔끔하게 빠져나올 수 있습니다. :
+
+[[include c:listing_23]]
+
+혹은, zmq_poll을 사용할 거라면, 반환코드를 확인해 보세요. :
+
+[[include c:listing_24]]
+
+이전 예제는 여전히 [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]를 사용합니다. Reactors는 어떻습니까? czmq {{zloop}} reactor는 간단하지만 실용적입니다.
+
+* 소켓에서 수신자를 설정, 즉 소켓에 수신메시지가 있을 때마다 호출되는 코드입니다.
+* 소켓에 수신자를 제거 합니다.
+* 한번 또는 특정 간격으로 여러 번 처리하는 타이머를 설정합니다.
+
+물론 {{zloop}} 내부적으로 [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]를 사용합니다. 이것은 수신자를 추가하거나 제거할 때마다 poll을 설정하여 재빌드하며, 이것은 다음 타이머와 일치시키기 위해 poll 타임아웃을 계산합니다. 다음은 주의가 필요한 각 소켓과 타이머를 위하여 수신자와 타이머 핸들러를 호출합니다.
+
+우리가 reactor패턴을 사용할 때, 우리의 코드는 내부에 드러납니다. 주요 로직은 다음과 같습니다. :
+
+[[include c:listing_25]]
+
+메시지의 실재처리는 전용 함수나 메소드 내부에 있습니다. 당신은 이렇게 하지 않아도 되며, 취향 문제 입니다. 좀 도움이 될 만한 것은 타이머와 소켓의 처리를 합치는 것입니다. 본 글의 마지막에 우리는 간단한 경우의 [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]와 좀더 복잡한 예제에 {{zloop}}을 사용할 것입니다.
+
+이것은 LRU queue broker를 다시 한번 재 작성한 것이며, 이번에는 zloop를 사용합니다. :
+
+[[collapsible show="lruqueue3: LRU queue broker using zloop in C" hide="lruqueue3: LRU queue broker using zloop in C"]]
+[[include c:lruqueue3]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:lruqueue3 Haxe] | [*http://zguide.zeromq.org/py:lruqueue3 Python] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+여러분이 Ctrl-C를 눌렀을 경우 적당하게 shut-down하는 어플리케이션을 만들어 봅시다. 만약 여러분이 zctx클래스를 사용한다면 자동적으로 신호처리를 설정하겠지만, 여러분의 코드는 좀 수정이 필요합니다. 여러분은 zmq_poll이 -1을 리턴 하거나 어떤 recv메소드((zstr_recv, zframe_recv, zmsg_recv)가 NULL을 리턴 한다면 루프를 빠져 나와야 합니다. 만약 여러분이 중첩 루프를 가지고 있다면 {{!zctx_interrupted}}으로 빠져나올 수 있는 상태변수를 만드는 것이 유용할 수 있습니다.
+
+[[# Asynchronous-Client-Server]][[# header-55]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Asynchronous-Client-Server Asynchronous Client-Server]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-54 prev] [#header-56 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+router-to-dealer 예제에서 우리는 한 클라이언트가 비동기적으로 여러 클라이언트와 통신하는1:N을 사용하는 케이스를 보았습니다. 우리는 여러 클라이언트가 하나의 서버와 통신하는 매우 유용한 N:1 구조를 가지기 위해 위와 아래를 바꿀 수 있으며, 비동기적으로 수행할 수 있습니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig46.png]]
+
+이것은 아래와 같이 작동합니다. :
+
+* 클라이언트가 서버에 연결 하고 요청합니다.
+* 각 요청에 대해 서버는 N개 회신에 0을 보냅니다. 
+* 클라이언트는 응답을 기다리지 않고 여러 요청을 보낼 수 있습니다. 
+* 서버는 새 요청을 기다리지 않고 여러 개의 회신을 보낼 수 있습니다.
+
+어떻게 이 일을 하는지 보여주는 코드가 있습니다:
+
+[[collapsible show="asyncsrv: Asynchronous client-server in C" hide="asyncsrv: Asynchronous client-server in C"]]
+[[include c:asyncsrv]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cs:asyncsrv C#] | [*http://zguide.zeromq.org/clj:asyncsrv Clojure] | [*http://zguide.zeromq.org/es:asyncsrv Erlang] | [*http://zguide.zeromq.org/fsx:asyncsrv F#] | [*http://zguide.zeromq.org/hx:asyncsrv Haxe] | [*http://zguide.zeromq.org/lua:asyncsrv Lua] | [*http://zguide.zeromq.org/php:asyncsrv PHP] | [*http://zguide.zeromq.org/py:asyncsrv Python] | [*http://zguide.zeromq.org/scala:asyncsrv Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | CL | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl | Ruby][[/size]]
+
+그냥 그 자체로 그 예를 실행 합니다. 다른 멀티 작업 예제와 마찬가지로, 하나의 프로세스에서 실행하지만, 각 작업 자체 컨텍스트와 개념적으로 별도의 프로세스 역할을 하고 있습니다. 당신은 서버로부터 회신하여 출력한 세개의 클라이언트( 각 임의의 ID )를 볼 수 있을 것입니다. 주의해서 보면, 당신은 요청에 대한 0 또는 더많은 회신을 가져오는 다른 클라이언트의 작업을 보게 될 것입니다.
+
+이 코드에 대 한 몇 가지 의견입니다. :
+
+* 클라이언트는 초당 한번 요청을 보내고, ‘0’ 이나 많은 응답을 얻습니다. [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]을 사용하여 이 작업을 확인하기 위해, 우리는 단순히 1초 시간제한으로 poll할 수 없거나, 우리가 마지막 응답을 받은 단 1초 후 새로운 요청을 보내는 것을 끝내는 것이 좋습니다. 그래서 우리는 어느정도 정확한 빠른 주기로 polling(100 times at 1/100th of a second per poll) 합니다. 이것은 서버가 heartbeat과 같은 형태의 요청, 즉 클라이언트가 현재 연결이나 연결이 끊어진 것을 감지할 때 사용할 수 있음을 의미합니다.
+
+* 서버는 하나의 요청을 동기적으로 각각 처리(processing) 하는 작업자 스레드 poll을 사용 합니다. 그것은 내부 큐를 사용하여 frontend socket에 이것을 연결합니다. 이것을 디버그하기 위해 코드는 자체 큐 장치에 로직을 구현합니다. C 코드에서는 디버깅을 하기 위해 zmsg_dump()의 주석처리를 해제 할 수 있습니다. 
+
+서버의 소켓 로직은 상당히 훌륭합니다. 이것은 서버의 세부 아키텍처입니다 :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig47.png]]
+
+우리는 클라이언트와 서버 사이에 dealer-to-router 가 있지만, 내부적으로 서버의 메인 스레드와 worker는 dealer-to-dealer 입니다. 만약 worker가 sync처리를 원한다면, REP를 사용해도 됩니다. 그러나 다중 응답을 보내기를 원한다면, 우리는 aync소켓을 사용해야 합니다. 
+
+라우팅 envelope에 대해서 생각해 보겠습니다. 클라이언트는 간단한 메시지를 보냅니다. 서버 스레드는 두 부분으로된 메시지(client ID + 실제 메시지)를 받습니다. 우리는 server-to-worker연결을 위한 두 가지 가능한 설계를 가집니다.
+
+* Worker가 주소가 없는 메시지를 받으면, 우리는 확실하게 서버 스레드에서 worker스레드까지 router소켓을 사용하여 연결을 관리합니다. 이것은 worker에게 요청을 라우팅할 수 있는 존재하는 서버과 통신하는 것으로 worker가 시작되는 것이 필요합니다. 이것은 이미 LRU패턴에 포함되어 있습니다.
+
+* Worker가 주소가 있는 메시지를 받으면, 이것은 주소가 있는 응답을 되돌려 줍니다. 이것은 어떤 다른 메커니즘이 필요한 것은 아니지만 worker는 envelope을 편집하는 것이 필요합니다.
+
+
+두 번째 디자인은 훨씬 간단하며, 다음과 같습니다. :
+
+[[code]]
+     client          server       frontend       worker
+   [ DEALER ]<---->[ ROUTER <----> DEALER <----> DEALER ]
+             1 part         2 parts       2 parts
+[[/code]]
+
+클라이언트와 안정적인 통신을 유지하는 서버를 만들 때, 우리는 한 전통적인 문제에 부딪칩니다. 만약 서버가 클라이언트마다 몇 가지 상태를 유지하고 클라이언트도 주고받는 것을 유지한다면, 결국 자원을 다 써버리게 될 것입니다. 심지어 동일한 클라이언트가 연결을 유지하고, 여러분이 transient 소켓(명시적인 ID가 없는)을 사용한다면, 각각의 연결은 새로운 것처럼 보일 것입니다.
+
+우리는 매우 짧은 시간( 요청을 처리하기 위해 worker가 걸리는 시간) 동안 단지 상태를 유지하고 그 다음에 상태를 버리는 예제를 위에서 보았지만, 여러 경우에 사용할 만큼 실용적 이진 않습니다. 
+
+안정적인 ASync서버에서 적정수준의 client상태를 유지하기 위해서 필요 사항 :
+
+* server에서 client로 heartbeating합니다. 이 예제에서 우리는 살아있는지 확인 할 수 있도록 1초마다 한번씩 요청을 보냅니다.
+* Key로써 client  ID를 사용하여 상태를 저장합니다. 이것은 duralbe과 transient 소켓 둘 다 작동합니다.
+
+* 클라이언트의 서버가 죽었는지 감지합니다. 만약에 신간에 2초간 응답이 없으면, 서버는 감지를 할 수 있고, 가지고있던 클라이언트의 상태를 없앨 수 있습니다.
+
+[[# Worked-Example-Inter-Broker-Routing]][[# header-56]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Worked-Example-Inter-Broker-Routing Worked Example: Inter-Broker Routing]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-55 prev] [#header-57 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리가 지금까지 본 것들을 이해하고 확장 합니다. 우리의 클라이언트는 대단위 클라우드 컴퓨팅 환경의 설계를 가져야 합니다.클라이언트는 클라이언트의 클러스터와 worker들이 전체가 하나로 동작하는 최신 데이터 센터의 클라우드 비전을 가지고 있습니다.
+
+우리는 연습이 최선의 방법임을 알기에 ØMQ를 사용하여 동작 시뮬레이션 만들기를 제안합니다. 우리 고객은 사장의 생각을 바꾸기 전에 예산을 삭감하기를 원하고 Twitter에서 ØMQ에 대한 중요한 내용들을 보고 있습니다. 
+
+[[# Establishing-the-Details]][[# header-57]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Establishing-the-Details Establishing the Details]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-56 prev] [#header-58 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 코드 제작을 시작하려 하지만, 놀라운 솔루션을 만들기 전에 더 자세하게 알고자 우리에게 말하는 작은 소리가 들립니다.  " Cloud는 어떤 종류의 일을 합니까?" 클라이언트는 설명을 해줍니다. :
+
+* worker는 다양한 종류의 하드웨어에서 동작하며, 어떤 처리도 할 수 있어야 합니다. 클러스터당 수백 개의 worker가 있고 무려 총 12 클러스터가 존재합니다.
+
+* 클라이언트는 worker를 위한 임무를 생성한다. 각각의 임무는 독립적인 일의 단위이고 모든 클라이언트는 가용한 worker를 찾기 원하고 가능한 빨리 임무를 전달합니다. 많은 클라이언트가 있고 그들은 자유롭게 왕래할 것입니다.
+
+* 실질적인 어려움은 언제나 클러스터를 추가하고 삭제할 수 있게 만드는 것입니다. 클러스터는 모든 worker와 클라이언트를 포함하여 cloud에 즉시 추가되거나 제외될 수 있습니다.
+
+* 그들의 클러스터에 worker가 없다면, 클라이언트가 만든 임무는 cloud의 다른 가용한 worker에게 전달될 것입니다.
+
+* 클라이언트는 한번에 하나의 임무를 송신하고 응답을 대기 한다. 정해진 시간 안에 응답을 받지 못한다면 또다시 임무를 전송할 것입니다.이것은 우리의 관심사가 아니며 클라이언트 API가 이미 구현하고 있습니다.
+
+* worker는 한번에 하나의 임무를 처리합니다. 오류가 발생하면 스크립트에 의하여 재 시작 됩니다.
+
+이상의 내용을 정확하게 이해하기 위하여 다시 점검을 합니다. : 
+
+* "클러스터 사이에 몇 가지 종류의 최고 network가 연결되어 있을 것입니다. 맞나요?", 그럼 클라이언트는 대답합니다. "예,물론 입니다.우리는 바보가 아닙니다."
+
+* -”어는 정도의 용량입니까?” 질문을 하면 클라이언트는 대답합니다.” 클러스터 당 천 개 이상의 클라이언트가 최대로 일을 하고 있습니다.초당 10개의 요청입니다.요청과 응답은 작은 사이즈 이며 1kbyte를 넘지 않습니다.
+
+* 그래서 우리는 간단한 계산으로 TCP상에서 훌륭히 동작할 것이라고 확인할 수 있습니다. 2,500 clients x 10/second x 1,000 bytes x 2 directions = 50MB/sec or 400Mb/sec, 1Gb network에서 문제 없습니다.
+
+그것은 최신 기계나 프로토콜은 필요 없고, 단지 현명한 라우팅 알고리즘과 주의 깊은 디자인을 요구하는 간단한 문제입니다. 우리는 하나의 클러스터를 설계하는 것에서 시작하여 여러 클러스터를 함께 연결하는 방법을 파악할 것입니다. 
+
+[[# Architecture-of-a-Single-Cluster]][[# header-58]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Architecture-of-a-Single-Cluster Architecture of a Single Cluster]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-57 prev] [#header-59 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+worker와 클라이언트는 동기적입니다.우리는 worker에 임무를 배정하기 위하여 LRU 패턴을 사용하기 원합니다.worker는 모두 동일합니다. worker는 익명이며 클라이언트는 그들을 직접적으로 지정할 수 없습니다. 우리는 여기에서 전달보장, 재시도, 등등을 제공하지 않습니다.
+
+우리가 이미 보았던 것과 같이 클라이언트와 worker는 직접 서로간의 통신을 하지 않습니다. 그것은 노드를 동적으로 추가하거나 삭제가 불가능하게 만듭니다. 그래서 우리의 기본 모델은 우리가 이미 보았던 reqest-reply message broker로 구성되어 있습니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig48.png]]
+
+[[# Scaling-to-Multiple-Clusters]][[# header-59]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Scaling-to-Multiple-Clusters Scaling to Multiple Clusters]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-58 prev] [#header-60 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이제 우리는 하나 이상의 클러스터에 대해 봅시다. 각 클러스터는 클라이언트와 worker로 구성되어 있고 이들은 borker로 연결되어 있습니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig49.png]]
+
+질문 : 우리는 각각 클러스터의 클라이언트가 다른 클러스터의 worker에게 어떻게 얘기하는지 알 수 있습니까? 찬반 양론 각각에 작은 가능성이 있습니다. :
+
+* 클라이언트는 양쪽 브로커에 직접 접속할 수 있습니다. 우리는 브로커와 worker를 수정할 필요가 없다는 이점이 있습니다. 그러나 클라이언트는 더 복잡해 지고 전체적인 포톨로지로 인식됩니다. 세 번째 또는 네 번째 클러스터를 추가하기를 원한다면 모든 클라이언트는 영향을 받습니다. 사실상 우리는 클라이언트의 라우팅 로직, failover 로직을 옮겨야 하고 이는 옳은 방법이 아닙니다.
+
+* worker는 양쪽 브로커에 직접 접속할 수 있습니다. 그러나 부모가 되는 worker는 이렇게 할 수 없고 그들은 단지 하나의 브로커에 응답을 할 수 있습니다.우리는 papa를 사용할 수 있으나 papa는 기존 만들어진 load balancing을 제외하고 LRU와 같은 broker-to-worker 라우팅을 수정하지 못합니다. 만약 여유 있는 worker에게 일을 분산하기 원한다면 이것은 실패할 것입니다. 우리는 정확한 LRU를 필요로 합니다. 해결책으로 하나의 worker node에 라우터 socket을 사용할 수 있습니다. 이것을 “Idea #1”라고 합시다.
+
+* 브로커는 서로 접속할 수 있습니다.이것은 몇몇 새로운 접속을 만들기 때문에 가장 깔끔해 보입니다. 우리는 즉시 클러스터를 추가할 수 있지만 그것은 아마도 범위 밖일 것 입니다. 이제 클라이언트와 worker는 실제 네트웍 topology의 무지에 남게 되고 브로커는 그들이 여유 있을 때 서로에게 통신합니다. 이것을 “Idea #2”라고 합시다.
+
+Idea #1을 보도록 합시다. worker는 양쪽 브로커에 접속하고 양쪽에서 일을 받아 들입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig50.png]]
+
+그것은 가능해 보입니다. 그러나 그것은 우리가 원하는 것을 제공하지 않으며, 클라이언트는 가능하면 기다려서 리모트 worker을 얻는 것보다 로컬 worker를 얻는 게 낫습니다. 또한 worker는 “ready” 신호를 양 브로커에 보내고 다른 worker가 유휴 상태로 남아 있어도 한번에 두 가지 일을 얻을 수 있습니다. 이 설계는 가장자리에 라우팅 로직을 넣기 때문에 실패한 것처럼 보입니다.
+
+이제 idea #2 입니다.우리는 브로커를 상호 연결하고 우리가 사용하는 것과 같은 mamas 인 클라이언트와 worker는 변경하지 않습니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig51.png]]
+
+이 설계는 문제가 한 지점에서 해결되기 때문에 호소력이 있습니다. 기본적으로 브로커는 서로에게 비밀 채널을 열고 통신하며 마치 낙타 무역상과 같이 “//이봐, 나는 좀 여유가 있으니 네가 많은 클라이언트를 가졌다면 흥정을 하자//”.
+
+그것은 사실상 더 정교한 라우팅 알고리즘입니다: 브로커는 서로를 위한 하청인이 됩니다. 우리가 실제 코드로 실행해 보기 전에 이 설계에 대해서 봅시다. :
+
+* 그것은 기본적으로 일반적인 케이스(같은 클러스터의 클라이언트와 worker)로 다루고 예외 경우(클러스터 사이의 불규칙한 일들)를 위해 추가적인 일을 합니다. 
+
+* 그것은 작업의 다른 타입에 대하여 다른 메시지 플로우를 사용하게 한다. 그것은 우리가 다르게 그들을 제어 할 수 있다는 것을 의미 합니다, 예 를 들면 다른 타입의 네트워크 접속을 사용하는 것과 같습니다.
+
+* 그것은 자연스럽게 확장하는 것 같이 느껴 집니다. 세 개 혹은 더 이상의 브로커 내부 연결은 더 복잡해 지지 않습니다. 만약 이것이 문제가 된다면 슈퍼 브로커를 추가 함으로써 쉽게 해결할 수 있습니다.
+
+우리는 이제 예제를 만들 수 있습니다. 우리는 전체 클러스터를 하나의 프로세스로 묶을 것입니다. 그것은 분명 현실적인 것은 아니지만 그것은 시뮬레이션 하기에 간단하게 하고 시뮬레이션은 실제 프로세스를 분명하게 확장할 수 있습니다. 이것은 ØMQ의 장점이고 여러분은 아주 세세한 부분까지 설계할 수 있고 매크로 수준까지 확장할 수 있습니다. 스레드는 프로세스화 정규화, 패턴화, 로직화 됩니다. 각각의 클러스터 프로세스는 클라이언트 스레드, worker 스레드 그리고 브로커 스레드를 가질 수 있습니다.
+
+우리는 지금까지 기본 모델에 대해 봤습니다. :
+
+* mama 클라이언트(REQ) 쓰레드는 부하를 발생하고 브로커(ROUTER)에 전달 한다.
+* mama worker(REQ) 쓰레드는 업무를 처리하고 브로커(ROUTER)에게 결과를 리턴 한다.
+* 브로커 큐와 LRU 라우팅 모델을 사용하여 부하를 분산한다.
+
+[[# Federation-vs-Peering]][[# header-60]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Federation-vs-Peering Federation vs. Peering]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-59 prev] [#header-61 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+브로커를 서로 연결하는 여러가지 방법이 있습니다. 우리가 원하는 것은 다른 브로커에게 "우리는 능력이 있습니다" 라고 말해 줄 수 있는 것입니다, 그리고 여러 작업을 받을 수 있습니다. 우리는 또한 다른 브로커에게  "멈춰라, 우리는 가득 찾습니다”라고 말할 필요가 있습니다. 그것은 완벽하지 않아도 : 때때로 우리는 우리가 즉시 처리할 수 없는 작업을 수락 할 수 있습니다 그리고 가능한 한 바로 그 작업들을 처리할 것입니다.
+
+가장 간단한 상호연락은 브로커들이 서로에 대해 클라이언트와 작업자를 시뮬레이션 하는 연맹입니다. 우리는 다른 브로커의 backend 소켓에 우리의 frontend를 연결하여 이 작업을 수행합니다. 참고로 그것은 endpoint에 소켓을 bind하거나 다른 끝점에 그것을 연결하는 것은 당연한 것입니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig52.png]]
+
+이것은 우리에게 브로커와 비교적 만족할 만한 매커니즘 모두 간단한 로직을 제공합니다: 클라이언트가 없을 때, 다른 브로커 '준비'를 얘기할 때, 그것으로부터 한가지 일을 수락할 때. 문제는 이 문제에 대해 너무 간단하다는 것입니다. 제휴 브로커는 한 번에 하나의 작업을 처리할 수 있을 것입니다. 브로커가 lock-step 클라이언트와 작업자를 에뮬레이트 하는 경우, 그것은 정의된 대로 잠금 단계가 될 것입니다. 만일 그것이 이용할 수 있는 작업자가 많이 있다면 그들은 사용되지 않습니다. 우리의 브로커는 완전히 비 동기 방식으로 연결해야 합니다.
+
+제휴 모델은 다른 종류의 라우팅, 특히 서비스 지향 아키텍처 또는 SOAs (LRU or load-balancing or random scatter보다 서비스 이름 과 proximity 에 의한 경로)에 완벽합니다. 따라서 쓸모 없는 것으로 생각하지 않으며, 그것은 least-recently used and cluster load-balancing을 위해 옳지 않습니다.
+
+그래서 연방 대신에, 브로커들이 서로 명시적으로 파악하고 있으며 권한을 가진 채널을 통해 이야기하는 peering 방법을 살펴보겠습니다. 우리는 N개의 브로커를 서로연결하기를 원하는 가정을 파괴하겠습니다. 모든 브로커는 (N-1)개의 peer를 가지고 있으며, 모든 브로커는 정확히 동일한 코드와 로직을 사용하고 있습니다. 브로커들 사이에는 정보의 두 가지 별개의 흐름이 있습니다.:
+
+* 각 브로커는 얼마나 많은 작업자들이 언제든지 그것을 사용할 수 있는지 peers 에게 말할 필요가 있습니다. 이것은 정기적으로 업데이트된 단지 수량적인 상당히 단순한 정보일 수 있습니다. 이것에 대한 분명한(정확환) 소켓 패턴은 publish-subscribe 입니다. 그래서 모든 브로커가 PUB 소켓을 오픈하고 거기에 상태 정보를 publishe 합니다, 그리고 모든 브로커는 또한 SUB 소켓을 오픈하고 다른 모든 브로커의 PUB 소켓에게 연결하며, 그것의 peers로부터 상태 정보를 얻습니다.
+
+* 각 브로커가 peer 에게 작업을 위임하거나 비동기적으로 다시 응답을 받을 수 있는 방법이 필요합니다. 우리는 ROUTER/ROUTER 소켓을 사용하여 이 작업을 수행하며,  다른 조합은 없습니다. 각 브로커는 그것이 받는 작업을 위해 하나, 그것을 위임하는 작업을 위해 하나, 두 개의 소켓을 가지고 있습니다. 우리가 두 소켓을 사용하지 않은 경우 우리는 매번 요청이나 응답을 읽을 것인지 알기 위해서 더 많은 작업이 있을 것입니다. 그것은 메시지 envelope에 더 많은 정보의 추가를 의미할 것입니다.
+
+그리고 브로커와 브로커의 로컬 클라이언트과 작업자 사이의 정보의 흐름이 있습니다.
+
+[[# The-Naming-Ceremony]][[# header-61]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#The-Naming-Ceremony The Naming Ceremony]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-60 prev] [#header-62 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+(3개 Flow) X (각 Flow를 위한 2개 소켓) = (우리가 브로커에서 관리해야 하는 6 개 소켓) 입니다. 좋은 이름을 선택하는 것은 우리의 마음에 합리적으로 일관된 멀티 소켓 저글링의 행동을 유지하기 위해 매우 중요합니다. 소켓들이 무엇인가를 하고 그들은 무엇인가 자신의 이름을 위해 기초를 형성해야 합니다. 그것은 추운 월요일 아침 커피 마시기 전 몇 주 후에도 코드를 쉽게 읽을 수 있을 것입니다.
+
+소켓에 대한 샤머니즘적인 명명 의식을 합시다. 세 흐름은 다음과 같습니다. :
+
+* A //local// request-reply flow between the broker and its clients and workers.
+* A //cloud// request-reply flow between the broker and its peer brokers.
+* A //state// flow between the broker and its peer brokers.
+
+모두 똑같은 길이의 의미 있는 이름을 찾는 것은 우리의 코드가 아름답게 정렬된 것을 의미합니다. 그것은 관계가 없는 것 같지만, 그런 세부 이러한 관심은 더 예술과 같은 뭔가가 일반적인 코드를 설정합니다.
+
+각 흐름에 대한 브로커는 우리가 the "frontend" and "backend"로 부를 수 있는 두 개의 소켓이 있습니다. 우리는 매우 자주 이러한 이름을 사용했습니다. frontend 는 정보 또는 작업을 받습니다. backend 다른 peers에게 정보 또는 작업을 지시합니다. 개념적흐름은 앞에서 뒤로 흐르고 응답은 반대로 뒤에서 앞으로 갑니다.
+
+따라서 우리가 지침서를 위해 작성한 모든 코드에서 이러한 소켓 이름을 사용하는 것입니다. :
+
+* //localfe// and //localbe// for the local flow.
+* //cloudfe// and //cloudbe// for the cloud flow.
+* //statefe// and //statebe// for the state flow.
+
+우리는 전송을 위해 모든 것에 {{IPC}}를 사용합니다. 이것은 (즉 inproc와는 같지 않으며, 연결이 끊어진 전송입니다.) 연결의 측면에서 {{TCP}}와 같은 작업의 장점을 가지며, 아직 우리는 여기에서 고민이 될 어떤, IP 주소 또는 DNS 이름을 필요하지 않습니다. 대신, 우리는 어딘가에 무엇인가 우리의 시뮬레이션 클러스터의 이름의 //something//-{{local}}, //something//-{{cloud}}, and //something//-{{state}} 라고 부르는 {{ipc}} endpoints를 사용 합니다.
+
+당신은 몇몇 이름을 위해 많은 일이 있다는 것을 생각하고 있을 수 있습니다. 왜 그들을  S1, S2, S3, S4 등으로 부르지 않을까?  대답은 당신의 머리가 완벽한 기계가 아니라면, 코드를 읽는 데 많은 도움이 필요하고, 이러한 이름은 도움이 되는 것을 확인할 수 있습니다. 그것은 "six different sockets" 보다 "three flows, two directions" 이 기억하기 훨씬 쉽습니다.
+
+아래는 브로커 소켓 배치입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig53.png]]
+
+참고로 우리는 다른 모든 브로커내 ‘cloudfe’에 각 브로커내 ‘cloudbe’를 연결합니다. 그리고 마찬가지로 우리는 다른 모든 브로커내 ‘statefe’에 각 브로커내 ‘statebe’를 연결합니다.
+
+[[# Prototyping-the-State-Flow]][[# header-62]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Prototyping-the-State-Flow Prototyping the State Flow]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-61 prev] [#header-63 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+각 소켓 흐름은 부주의한 자체의 작은 함정을 가지고 있기 때문에, 우리는 한번에 전체 코드를 하는 것 보다는 실제로 코드에 차례차례 그들을 테스트하는 것이 좋습니다. 우리가 각각의 흐름에 만족할 때, 우리는 전체 프로그램에 그들을 함께 넣을 수 있습니다. 우리는 상태 흐름과 함께 시작할 것입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig54.png]]
+
+코드에서 어떻게 작동하는지는 다음과 같습니다. :
+
+[[collapsible show="peering1: Prototype state flow in C" hide="peering1: Prototype state flow in C"]]
+[[include c:peering1]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/clj:peering1 Clojure] | [*http://zguide.zeromq.org/fsx:peering1 F#] | [*http://zguide.zeromq.org/hx:peering1 Haxe] | [*http://zguide.zeromq.org/lua:peering1 Lua] | [*http://zguide.zeromq.org/php:peering1 PHP] | [*http://zguide.zeromq.org/py:peering1 Python] | [*http://zguide.zeromq.org/scala:peering1 Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | CL | Erlang | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl | Ruby][[/size]]
+
+이 코드의 참고사항 입니다. :
+
+* 각 브로커는 우리가 {{IPC}} 끝점 이름을 구성하는 데 사용하는 ID를 가집니다.  실제 브로커는 TCP와 보다 정교한 구성 체계와 함께 작동하도록 해야 합니다. 우리는 이 책에서 나중에 이러한 방식으로 보이지만 지금은, 생성된 {{IPC}} 이름을 사용하는 것은 우리의 TCP / IP 주소 또는 이름을 어디서 얻어야 하는지에 대한 문제를 무시 할 수 있습니다.
+
+* 우리는 프로그램의 핵심으로 [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)] 루프를 사용합니다. 이것은 들어오는 메시지를 처리하고 상태 메시지를 보냅니다. 만일 우리가 들어오는 메시지를 받지 못하고 우리가 잠시 기다렸다면 우리는 상태 메시지를 보냅니다. 만일 우리가 매시간 상태 메시지를 보낸다면 그것을 받아 들이게 되고, 결국 너무 많은 메시지를 받게 될 것입니다
+
+* 우리는 보낸 사람 주소와 데이터로 구성된 두 부분 pubsub 메시지를 사용합니다. 참고로, 우리는 작업을 전송하기 위해 publisher 의 주소를 알아야 됩니다, 그리고 유일한 방법은 메시지의 일부로 명확하게 이것을 전송하는 것입니다.
+
+* 실행중인 브로커에 연결할 때 최신의 상태정보를 받았기 때문에 subscribers 의 ID를 설정하지 않습니다.
+
+* subscribers 가 일시적이기 때문에 우리는 publisher 의 HWM을 설정하지 않습니다. 하나의 HWM을 설정할 수 있지만 여기서는 의미 없는 추가 작업입니다.
+
+우리는 이 작은 프로그램을 빌드하고 세 클러스터를 시뮬레이션하기 위해 세 번 실행할 수 있습니다. 자, 그들 DC1, DC2, DC3 (이름은 임의로 지은 것입니다.)를 호출하십시오. 우리는 이 세 가지 명령을 별도의 창에서 각각 실행합니다. :
+
+[[code]]
+peering1 DC1 DC2 DC3  #  Start DC1 and connect to DC2 and DC3
+peering1 DC2 DC1 DC3  #  Start DC2 and connect to DC1 and DC3
+peering1 DC3 DC1 DC2  #  Start DC3 and connect to DC1 and DC2
+[[/code]]
+
+사실, 우리는 정기적으로 상태 메시지를 보낼 수 있지만 오히려 상태가 변경될 때 (worker가 가용하거나 가용하지 않을 때) 보냈습니다. 그것은 트래픽이 많은 것처럼 보일 수 있습니다. 그러나 상태 메시지가 소규모이고, 우리는 inter-cluster 연결을 super-fast 하게 구성했습니다.
+
+우리가 정확한 간격으로 상태 메시지를 보내기를 원한다면 우리는 자식 스레드를 생성하고 스레드내에 statebe 소켓을 오픈해야 합니다. 그러면 우리의 메인 스레드에서 해당 자식 스레드에게 불규칙한 상태 업데이트를 전송하고, 자식 스레드가 정기적으로 보내는 메시지로 그들을 융합 할 수 있습니다. 이것은 우리가 여기에서 필요한 것 그 이상의 작업입니다.
+
+[[# Prototyping-the-Local-and-Cloud-Flows]][[# header-63]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Prototyping-the-Local-and-Cloud-Flows Prototyping the Local and Cloud Flows]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-62 prev] [#header-64 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이제 로컬과 클라우드 소켓을 통해 작업의 흐름에 대해서 prototype을 합니다. 이 코드는 클라이언트로부터 요청을 가져와서 임의의 기준으로 로컬 작업자와 클라우드 peers에게 배포합니다.   :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig55.png]]
+
+우리가 좀 복잡함을 갖고 있는 코드로 가기 전에, 그 핵심 라우팅 로직을 스케치하고 간단하지만 강력한 설계로 그것을 설명하겠습니다. 
+
+우리는 로컬 클라이언트의 요청에 대해 하나 클라우드 클라이언트의 요청에 대해 하나 두 개의 queues 가 필요합니다. 한 옵션은 로컬 및 클라우드 frontends 에서 메시지를 뽑아 , 이러한 각각의 queues 에 넣는 것입니다.  그러나 ØMQ 소켓이 이미 queues 이기 때문에 이것은 무의미한 것입니다. 그래서 queues로 ØMQ 소켓 버퍼를 사용합니다. 
+
+이것은 우리가 LRU queue 브로커에서 사용되는 기술이며, 멋지게 작동했습니다. 요청을 보내 것이 어딘가에 있을 때 우리는 단지 두 개의 frontends에서 읽습니다.  그들이 우리에게 돌아갈 경로를 응답해 주기 때문에 우리는 항상 backends에서 읽을 수 있습니다. backends가 우리에게 말하지 않는 오랫동안, 심지어 frontends를 보고 있는 순간에도 아무 문제가 없습니다.
+
+그래서 메인 루프가 되어 사용됩니다. :
+
+* backends의 활동을 위해 poll을 합니다. 우리가 메시지를 얻을 때, 그것은 작업자로부터 "READY" 해도 되고, 응답해도 됩니다. 만일 응답을 한다면, 로컬이나 클라우드 frontend를 통해 돌아갈 경로를 라우트팅 합니다.
+
+* 만일 작업자가 응답했다면, 그것은 가능한 상태가 됩니다, 그래서 우리는 그것을 queue에 넣고, 수를 셉니다.
+
+* 가용한 근로자가 있는 동안, 로컬 작업자, 또는 임의의 클라우드 peer에게 frontend  및 경로 중 하나에서, 어떤 경우의 요청을 받습니다.
+
+작업자가 클러스터에 걸쳐 작업 배포를 시뮬레이션하는 것 보다 임의로 peer 브로커에게  작업을 전송하는 것이 좋습니다.
+
+우리는 브로커 사이의 메시지 경로로 브로커 ID를 사용합니다. 각 브로커는 우리가 이 간단한 prototype에 있는 커맨드 라인에서 제공하는 이름을 가지고 있습니다. 이 이름은 클라이언트 노드에 사용되는 ØMQ 생성된 UUIDs와 중복되지 않는 한, 우리는 클라이언트 또는 브로커로 복구 경로 응답 여부를 알아낼 수 있습니다. 
+
+이 코드가 어떻게 작동하는지 보세요. 흥미로운 부분은 코멘트 " Interesting part "주위에 있습니다. 
+
+[[collapsible show="peering2: Prototype local and cloud flow in C" hide="peering2: Prototype local and cloud flow in C"]]
+[[include c:peering2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/fsx:peering2 F#] | [*http://zguide.zeromq.org/hx:peering2 Haxe] | [*http://zguide.zeromq.org/lua:peering2 Lua] | [*http://zguide.zeromq.org/php:peering2 PHP] | [*http://zguide.zeromq.org/py:peering2 Python] | [*http://zguide.zeromq.org/scala:peering2 Scala] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl | Ruby][[/size]]
+
+예를 들어, 두 개의 Windows에서 브로커의 두 인스턴스를 시작하여 작업을 실행합니다. :
+
+[[code]]
+peering2 me you
+peering2 you me
+[[/code]]
+
+이 코드의 일부를 설명 합니다. :
+
+* zmsg 클래스를 사용하면 훨씬 쉽고 코드가 간편해 집니다. 이것은 ØMQ 프로그래머로서 당신의 도구 상자의 일부를 구성해야 하는 작업을 분명하게 추상화 합니다.
+
+
+* 우리는 peers 로부터 어떤 상태 정보도 얻지 못하기 때문에, 우리는 단지 그들이 실행하고 있는 것으로 가정합니다. 이 코드는 모든 브로커를 시작했을 때를 확인하기 위해 유도(prompt)합니다. 사실, 우리는 브로커가 존재하는지 모르기 때문에 아무것도 보내지 않습니다. 
+
+당신은 코드가 영원히 실행되는 것을 보면서 만족할 것입니다. 어떤 잘못된 경로로 보낸 메시지가 있다면, 클라이언트는 결국 차단되고 브로커는 추적정보 출력을 중단합니다. 당신은 브로커 중 하나를 죽이고 그것을 증명할 수 있습니다. 다른 브로커는 클라우드에 요청을 보내고, 하나씩 클라이언트가 답변을 기다리려고 blocking할 것입니다. 
+
+[[# Putting-it-All-Together]][[# header-64]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Putting-it-All-Together Putting it All Together]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-63 prev] [#header-65 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이것을 단일 패키지 안에 넣어 봅시다. 이전처럼, 우리는 한 개의 프로세스로 전체 클러스터를 실행할 수 있습니다. 우리는 이전의 두 예제를 가지고 당신은 클러스터의 모든 수를 시뮬레이션 할 수 있게 설계되어 한 개로 적절하게 작동하도록 그들을 병합할 겁니다.
+
+이 코드는 270 LoC에서 이전 prototype 정도의 크기입니다. 그것은 클라이언트와 작업자와 클라우드 작업량 분포를 포함하는 클러스터의 시뮬레이션을 위하여 매우 좋습니다. 여기 코드는 다음과 같습니다. :
+
+[[collapsible show="peering3: Full cluster simulation in C" hide="peering3: Full cluster simulation in C"]]
+[[include c:peering3]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/fsx:peering3 F#] | [*http://zguide.zeromq.org/hx:peering3 Haxe] | [*http://zguide.zeromq.org/lua:peering3 Lua] | [*http://zguide.zeromq.org/php:peering3 PHP] | [*http://zguide.zeromq.org/py:peering3 Python] | [*http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | Go | Haskell | Java | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+그것은 평범한 프로그램이 아니며, 작업하는데 하루 정도 걸렸습니다.. 이것의 특징입니다. :
+
+* 클라이언트 스레드는 실패한 요청을 감지하고 보고합니다. 이것은 응답을 폴링하여 작업을 수행하고, 잠시(10초) 후에 아무런 응답이 도착하지 않는 경우, 오류 메시지를 출력합니다.
+
+* 클라이언트 스레드는 직접 출력하지 않고, 대신에 메인 루프가 수집(PULL)하고 인쇄하는 모니터 소켓 (PUSH)에 메시지를 보냅니다. 이것은 우리가 모니터링과 로깅을 위하여 ØMQ 소켓 사용을 본 첫 사례이며 이것은 우리에게 나중에 돌아올 큰 유스케이스 입니다. 
+
+* 클라이언트는 임의의 순간에 클러스터 100 %를 얻기 위해서 부하를 다양하게 시뮬레이션하며, 작업은 클라우드로 전환하고 있습니다.  클라이언트, 작업자, 그리고 클라이언트와 작업자 스레드에서 지연의 숫자는 이것을 제어합니다. 만일 당신이 보다 현실적인 시뮬레이션을 만들 수 있다면, 그들과 함께 볼 수 있도 록 마음대로 실행해 보십시오. 
+
+* 메인 루프는 두 pollsets를 사용합니다. 그것은 실제로 information, backends, and frontends. 세가지를 사용할 수 있습니다.. 초기 prototype과 마찬가지로, 만일 backend용량이 없으면 frontend 메시지를 가질 수 있는 지점이 없습니다
+
+
+이들은 이 프로그램의 개발 시 부딪치는 문제의 일부입니다. :
+
+* 클라이언트가 요청 또는 답장이 어딘가에 잃어버린 것 때문에 멈출 것입니다.  ØMQ 라우터 / 라우터 소켓은 라우팅 할 수 없는 메시지는 버린다는 것을 기억하세요.  여기에 첫 번째 전술은 이러한 문제를 감지하고 보고하는 클라이언트 스레드를 수정하는 것입니다. 다음으로, 무엇이 문제가 있었는지 분명해질 때까지, 메인 루프에서 send()하기 전과 recv()후에 zmsg_dump ( )을 넣습니다.
+
+* 메인 루프는 잘못하여 하나 이상의 준비된 소켓에서 읽었습니다. 이것은 첫 번째 메시지가 손실되는 원인이 됩니다. 그 첫 번째 준비된 소켓에서 읽도록 해야 합니다.
+
+* zmsg 클래스가 제대로 C 문자열로 UUIDs 인코딩 되지 않았습니다. 이것은 손상되고 0 바이트를 포함한 UUIDs의 원인이 됩니다. 인쇄 가능한 16 진수 문자열로 UUIDs를 인코딩 하는 zmsg를 수정하여 고정해야 합니다.
+
+이 시뮬레이션은 cloud peer의 소멸을 감지하지 않습니다. 만일 당신이 여러 peer를 시작하고 하나를 중지하고, 그것이 다른 peer에게 능력을 전달했다면, 그들은 비록 그것이 사라졌을 경우에도 일을 보낼 것입니다. 당신이 이것을 시도 할 수 있고, 당신은 잃어버린 요청에 불평하는 client를 얻을 것입니다. 이 솔루션은 두 가지입니다. : 첫째, 만일 peer 가 사라지면, 그 용량이 빠르게 '제로'로 설정되도록 짧은 시간 동안 용량 정보를 유지합니다. 둘째, request-reply chain 에 안정성을 추가합니다. 우리는 다음 장에서는 신뢰성 보겠습니다.

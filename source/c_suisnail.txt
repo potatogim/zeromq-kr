@@ -1,0 +1,83 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Suicidal Snail
+@@//@@
+#include "czmq.h"
+
+@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}This is our subscriber
+@@//@@{{@@  @@}}It connects to the publisher and subscribes to everything. It
+@@//@@{{@@  @@}}sleeps for a short time between messages to simulate doing too
+@@//@@{{@@  @@}}much work. If a message is more than 1 second late, it croaks.
+
+#define MAX_ALLOWED_DELAY{{@@   @@}}1000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]subscriber[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Subscribe to everything//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get and process messages//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] zstr_recv (subscriber);
+{{@@        @@}}printf([[span style="color:#BA2121"]]"%s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], string);
+{{@@        @@}}[[span style="color:#B00040"]]int64_t[[/span]] clock;
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] terms [[span style="color:#666666"]]=[[/span]] sscanf (string, [[span style="color:#BA2121"]]"%"[[/span]] PRId64, [[span style="color:#666666"]]&[[/span]]clock);
+{{@@        @@}}assert (terms [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}free (string);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Suicide snail logic//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]-[[/span]] clock [[span style="color:#666666"]]>[[/span]] MAX_ALLOWED_DELAY) {
+{{@@            @@}}fprintf (stderr, [[span style="color:#BA2121"]]"E: subscriber cannot keep up, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Work for 1 msec plus some random additional time//[[/span]]
+{{@@        @@}}zclock_sleep ([[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]+[[/span]] randof ([[span style="color:#666666"]]2[[/span]]));
+{{@@    @@}}}
+{{@@    @@}}zstr_send (pipe, [[span style="color:#BA2121"]]"gone and died"[[/span]]);
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}This is our server task
+@@//@@{{@@  @@}}It publishes a time-stamped message to its pub socket every 1ms.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]publisher[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare publisher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PUB);
+{{@@    @@}}zsocket_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send current clock (msecs) to subscribers//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] string @@[@@[[span style="color:#666666"]]20[[/span]]@@]@@;
+{{@@        @@}}sprintf (string, [[span style="color:#BA2121"]]"%"[[/span]] PRId64, zclock_time ());
+{{@@        @@}}zstr_send (publisher, string);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]signal [[span style="color:#666666"]]=[[/span]] zstr_recv_nowait (pipe);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (signal) {
+{{@@            @@}}free (signal);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}zclock_sleep ([[span style="color:#666666"]]1[[/span]]);{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}1msec wait//[[/span]]
+{{@@    @@}}}
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}This main thread simply starts a client, and a server, and then
+@@//@@{{@@  @@}}waits for the client to signal it's died.
+@@//@@[[/span]][[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pubpipe [[span style="color:#666666"]]=[[/span]] zthread_fork (ctx, publisher, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subpipe [[span style="color:#666666"]]=[[/span]] zthread_fork (ctx, subscriber, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}free (zstr_recv (subpipe));
+{{@@    @@}}zstr_send (pubpipe, [[span style="color:#BA2121"]]"break"[[/span]]);
+{{@@    @@}}zclock_sleep ([[span style="color:#666666"]]100[[/span]]);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,174 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Least-recently used (LRU) queue device
+@@//@@{{@@  @@}}Clients and workers are shown here in-process
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each thread has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"
+#include <pthread.h>
+
+#define NBR_CLIENTS 10
+#define NBR_WORKERS 3[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Dequeue operation for queue implemented as array of anything//[[/span]]
+[[span style="color:#BC7A00"]]#define DEQUEUE(q) memmove (&(q)@@[@@0@@]@@, &(q)@@[@@1@@]@@, sizeof (q) - sizeof (q @@[@@0@@]@@))[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Basic request-reply client using REQ socket
+@@//@@{{@@  @@}}Since s_send and s_recv can't handle 0MQ binary identities we
+@@//@@{{@@  @@}}set a printable text identity to allow routing.
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]client_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}s_set_id (client);{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set a printable identity//[[/span]]
+{{@@    @@}}zmq_connect (client, [[span style="color:#BA2121"]]"ipc:@@//@@frontend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send request, get reply//[[/span]]
+{{@@    @@}}s_send (client, [[span style="color:#BA2121"]]"HELLO"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] s_recv (client);
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Client: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply);
+{{@@    @@}}free (reply);
+{{@@    @@}}zmq_close (client);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Worker using REQ socket to do LRU routing
+@@//@@{{@@  @@}}Since s_send and s_recv can't handle 0MQ binary identities we
+@@//@@{{@@  @@}}set a printable text identity to allow routing.
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}s_set_id (worker);{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set a printable identity//[[/span]]
+{{@@    @@}}zmq_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@backend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell broker we're ready for work//[[/span]]
+{{@@    @@}}s_send (worker, [[span style="color:#BA2121"]]"READY"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Read and save all frames until we get an empty frame//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}In this example there is only 1 but it could be more//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}assert ([[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}free (empty);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get request, send reply//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Worker: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request);
+{{@@        @@}}free (request);
+
+{{@@        @@}}s_sendmore (worker, address);
+{{@@        @@}}s_sendmore (worker, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@        @@}}s_send{{@@     @@}}(worker, [[span style="color:#BA2121"]]"OK"[[/span]]);
+{{@@        @@}}free (address);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (worker);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend{{@@  @@}}[[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (frontend, [[span style="color:#BA2121"]]"ipc:@@//@@frontend.ipc"[[/span]]);
+{{@@    @@}}zmq_bind (backend,{{@@  @@}}[[span style="color:#BA2121"]]"ipc:@@//@@backend.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] client_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (client_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; client_nbr [[span style="color:#666666"]]<[[/span]] NBR_CLIENTS; client_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}pthread_t client;
+{{@@        @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]client, [[span style="color:#008000"]]NULL[[/span]], client_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] worker_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (worker_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; worker_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS; worker_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}pthread_t worker;
+{{@@        @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]worker, [[span style="color:#008000"]]NULL[[/span]], worker_task, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Logic of LRU loop//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- Poll backend always, frontend only if 1+ worker ready//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- If worker replies, queue worker as ready and forward reply//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@    @@}}to client if necessary//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- If client requests, pop next worker and send request to it//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue of available workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] available_workers [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]worker_queue @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ backend,{{@@  @@}}[[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ frontend, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}zmq_poll (items, available_workers[[span style="color:#666666"]]?[[/span]] [[span style="color:#666666"]]2[[/span]][[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle worker activity on backend//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue worker address for LRU routing//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]worker_addr [[span style="color:#666666"]]=[[/span]] s_recv (backend);
+{{@@            @@}}assert (available_workers [[span style="color:#666666"]]<[[/span]] NBR_WORKERS);
+{{@@            @@}}worker_queue @@[@@available_workers[[span style="color:#666666"]]++[[/span]]@@]@@ [[span style="color:#666666"]]=[[/span]] worker_addr;
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Second frame is empty//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (backend);
+{{@@            @@}}assert (empty @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@ [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}free (empty);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Third frame is READY or else a client reply address//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]client_addr [[span style="color:#666666"]]=[[/span]] s_recv (backend);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If client reply, send rest back to frontend//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (strcmp (client_addr, [[span style="color:#BA2121"]]"READY"[[/span]]) [[span style="color:#666666"]]!=[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                @@}}empty [[span style="color:#666666"]]=[[/span]] s_recv (backend);
+{{@@                @@}}assert (empty @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@ [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@                @@}}free (empty);
+{{@@                @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] s_recv (backend);
+{{@@                @@}}s_sendmore (frontend, client_addr);
+{{@@                @@}}s_sendmore (frontend, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@                @@}}s_send{{@@     @@}}(frontend, reply);
+{{@@                @@}}free (reply);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]@@--@@[[/span]]client_nbr [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                    @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Exit after N messages//[[/span]]
+{{@@            @@}}}
+{{@@            @@}}free (client_addr);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now get next client request, route to LRU worker//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Client request is @@[@@address@@][@@empty@@][@@request@@]@@[[/span]][[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]client_addr [[span style="color:#666666"]]=[[/span]] s_recv (frontend);
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (frontend);
+{{@@            @@}}assert (empty @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@ [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}free (empty);
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (frontend);
+
+{{@@            @@}}s_sendmore (backend, worker_queue @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@);
+{{@@            @@}}s_sendmore (backend, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@            @@}}s_sendmore (backend, client_addr);
+{{@@            @@}}s_sendmore (backend, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@            @@}}s_send{{@@     @@}}(backend, request);
+
+{{@@            @@}}free (client_addr);
+{{@@            @@}}free (request);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Dequeue and drop the next worker address//[[/span]]
+{{@@            @@}}free (worker_queue @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@);
+{{@@            @@}}DEQUEUE (worker_queue);
+{{@@            @@}}available_workers[[span style="color:#666666"]]@@--@@[[/span]];
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zmq_close (frontend);
+{{@@    @@}}zmq_close (backend);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

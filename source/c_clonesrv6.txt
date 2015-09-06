@@ -1,0 +1,388 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Clone server Model Six
+@@//@@
+
+@@//@@{{@@  @@}}Lets us build this source without creating a library
+#include "bstar.c"
+#include "kvmsg.c"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Bstar reactor handlers//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_snapshots{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_collector{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_flush_ttl{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_send_hugz{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_new_master (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_new_slave{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_subscriber (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our server is defined by these properties//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context wrapper//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Key-value store//[[/span]]
+{{@@    @@}}bstar_t [[span style="color:#666666"]]*[[/span]]bstar;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Bstar reactor core//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many updates we're at//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] port;{{@@                   @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Main port we're working on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] peer;{{@@                   @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Main port of our peer//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Publish updates and hugz//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]collector;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Collect updates from clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get updates from peer//[[/span]]
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]pending;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Pending updates from clients//[[/span]]
+{{@@    @@}}Bool primary;{{@@               @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}TRUE if we're primary//[[/span]]
+{{@@    @@}}Bool master;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}TRUE if we're master//[[/span]]
+{{@@    @@}}Bool slave;{{@@                 @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}TRUE if we're slave//[[/span]]
+} clonesrv_t;
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (clonesrv_t));
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-p"[[/span]])) {
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: primary master, waiting for backup (slave)"[[/span]]);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]bstar [[span style="color:#666666"]]=[[/span]] bstar_new (BSTAR_PRIMARY, [[span style="color:#BA2121"]]"tcp:@@//@@*:5003"[[/span]],
+{{@@                                 @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5004"[[/span]]);
+{{@@        @@}}bstar_voter (self[[span style="color:#666666"]]->[[/span]]bstar, [[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]], ZMQ_ROUTER, s_snapshots, self);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5556[[/span]];
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]peer [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5566[[/span]];
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]primary [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-b"[[/span]])) {
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: backup slave, waiting for primary (master)"[[/span]]);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]bstar [[span style="color:#666666"]]=[[/span]] bstar_new (BSTAR_BACKUP, [[span style="color:#BA2121"]]"tcp:@@//@@*:5004"[[/span]],
+{{@@                                 @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5003"[[/span]]);
+{{@@        @@}}bstar_voter (self[[span style="color:#666666"]]->[[/span]]bstar, [[span style="color:#BA2121"]]"tcp:@@//@@*:5566"[[/span]], ZMQ_ROUTER, s_snapshots, self);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5566[[/span]];
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]peer [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5556[[/span]];
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]primary [[span style="color:#666666"]]=[[/span]] FALSE;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Usage: clonesrv4 { -p | -b }[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}free (self);
+{{@@        @@}}exit ([[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Primary server will become first master//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]primary)
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]pending [[span style="color:#666666"]]=[[/span]] zlist_new ();
+{{@@    @@}}bstar_set_verbose (self[[span style="color:#666666"]]->[[/span]]bstar, TRUE);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set up our clone server sockets//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_PUB);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]collector [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]collector, [[span style="color:#BA2121"]]"tcp:@@//@@*:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set up our own clone client interface to peer//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]peer [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register state change handlers//[[/span]]
+{{@@    @@}}bstar_new_master (self[[span style="color:#666666"]]->[[/span]]bstar, s_new_master, self);
+{{@@    @@}}bstar_new_slave (self[[span style="color:#666666"]]->[[/span]]bstar, s_new_slave, self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register our other handlers with the bstar reactor//[[/span]]
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]collector, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller (bstar_zloop (self[[span style="color:#666666"]]->[[/span]]bstar), [[span style="color:#666666"]]&[[/span]]poller, s_collector, self);
+{{@@    @@}}zloop_timer{{@@  @@}}(bstar_zloop (self[[span style="color:#666666"]]->[[/span]]bstar), [[span style="color:#666666"]]1000[[/span]], [[span style="color:#666666"]]0[[/span]], s_flush_ttl, self);
+{{@@    @@}}zloop_timer{{@@  @@}}(bstar_zloop (self[[span style="color:#666666"]]->[[/span]]bstar), [[span style="color:#666666"]]1000[[/span]], [[span style="color:#666666"]]0[[/span]], s_send_hugz, self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start the Bstar reactor//[[/span]]
+{{@@    @@}}bstar_start (self[[span style="color:#666666"]]->[[/span]]bstar);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted, so shut down//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]pending)) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (self[[span style="color:#666666"]]->[[/span]]pending);
+{{@@        @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]pending);
+{{@@    @@}}bstar_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]bstar);
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@    @@}}free (self);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send snapshots to clients who ask for them[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_send_single ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Routing information for a key-value snapshot//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}ROUTER socket to send to//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity;{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Identity of peer who requested state//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Client subtree specification//[[/span]]
+} kvroute_t;
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_snapshots[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (identity) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request is in second frame of message//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zstr_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (request, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]])) {
+{{@@            @@}}free (request);
+{{@@            @@}}subtree [[span style="color:#666666"]]=[[/span]] zstr_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: bad request, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (subtree) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send state socket to client//[[/span]]
+{{@@            @@}}kvroute_t routing [[span style="color:#666666"]]=[[/span]] { poller[[span style="color:#666666"]]->[[/span]]socket, identity, subtree };
+{{@@            @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]kvmap, s_send_single, [[span style="color:#666666"]]&[[/span]]routing);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now send END message with sequence number//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: sending shapshot=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]identity, poller[[span style="color:#666666"]]->[[/span]]socket, ZFRAME_MORE);
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new (self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@            @@}}kvmsg_set_key{{@@  @@}}(kvmsg, [[span style="color:#BA2121"]]"KTHXBAI"[[/span]]);
+{{@@            @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) subtree, [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}kvmsg_send{{@@     @@}}(kvmsg, poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}free (subtree);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Send one state snapshot key-value pair to a socket
+@@//@@{{@@  @@}}Hash item data is our kvmsg object, ready to send[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_send_single[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}kvroute_t [[span style="color:#666666"]]*[[/span]]kvroute [[span style="color:#666666"]]=[[/span]] (kvroute_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) data;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (strlen (kvroute[[span style="color:#666666"]]->[[/span]]subtree) [[span style="color:#666666"]]<=[[/span]] strlen (kvmsg_key (kvmsg))
+{{@@    @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (kvroute[[span style="color:#666666"]]->[[/span]]subtree,
+{{@@                @@}}kvmsg_key (kvmsg), strlen (kvroute[[span style="color:#666666"]]->[[/span]]subtree)) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send identity of recipient first//[[/span]]
+{{@@        @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]kvroute[[span style="color:#666666"]]->[[/span]]identity,
+{{@@            @@}}kvroute[[span style="color:#666666"]]->[[/span]]socket, ZFRAME_MORE [[span style="color:#666666"]]+[[/span]] ZFRAME_REUSE);
+{{@@        @@}}kvmsg_send (kvmsg, kvroute[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Collect updates from clients
+@@//@@{{@@  @@}}If we're master, we apply these to the kvmap
+@@//@@{{@@  @@}}If we're slave, or unsure, we queue them on our pending list[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_was_pending (clonesrv_t [[span style="color:#666666"]]*[[/span]]self, kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg);
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_collector[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}kvmsg_dump (kvmsg);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]master) {
+{{@@            @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@            @@}}kvmsg_send (kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@            @@}}[[span style="color:#B00040"]]int[[/span]] ttl [[span style="color:#666666"]]=[[/span]] atoi (kvmsg_get_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]]));
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (ttl)
+{{@@                @@}}kvmsg_set_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]],
+{{@@                    @@}}[[span style="color:#BA2121"]]"%"[[/span]] PRId64, zclock_time () [[span style="color:#666666"]]+[[/span]] ttl [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]1000[[/span]]);
+{{@@            @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: publishing update=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we already got message from master, drop it, else//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}hold on pending list//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (s_was_pending (self, kvmsg))
+{{@@                @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]pending, kvmsg);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}If message was already on pending list, remove it and
+@@//@@{{@@  @@}}return TRUE, else return FALSE.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_was_pending[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]self, kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg)
+{
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]held [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) zlist_first (self[[span style="color:#666666"]]->[[/span]]pending);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (held) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (kvmsg_uuid (kvmsg),
+{{@@                    @@}}kvmsg_uuid (held), [[span style="color:#008000"]]**sizeof**[[/span]] (uuid_t)) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}zlist_remove (self[[span style="color:#666666"]]->[[/span]]pending, held);
+{{@@            @@}}[[span style="color:#008000"]]**return**[[/span]] TRUE;
+{{@@        @@}}}
+{{@@        @@}}held [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) zlist_next (self[[span style="color:#666666"]]->[[/span]]pending);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] FALSE;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Purge ephemeral values that have expired[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_flush_single ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_flush_ttl[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]kvmap)
+{{@@        @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]kvmap, s_flush_single, args);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}If key-value pair has expired, delete it and publish the
+@@//@@{{@@  @@}}fact to listening clients.[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_flush_single[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) data;
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] ttl;
+{{@@    @@}}sscanf (kvmsg_get_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]]), [[span style="color:#BA2121"]]"%"[[/span]] PRId64, [[span style="color:#666666"]]&[[/span]]ttl);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (ttl [[span style="color:#666666"]]&&[[/span]] zclock_time () [[span style="color:#666666"]]>=[[/span]] ttl) {
+{{@@        @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}kvmsg_send (kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: publishing delete=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send hugz to anyone listening on the publisher socket[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_send_hugz[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new (self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}kvmsg_set_key{{@@  @@}}(kvmsg, [[span style="color:#BA2121"]]"HUGZ"[[/span]]);
+{{@@    @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}kvmsg_send{{@@     @@}}(kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@    @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}State change handlers
+@@//@@{{@@  @@}}We're becoming master
+@@//@@
+@@//@@{{@@  @@}}The backup server applies its pending list to its own hash table,
+@@//@@{{@@  @@}}and then starts to process state snapshot requests.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_new_master[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]unused, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]master [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]slave [[span style="color:#666666"]]=[[/span]] FALSE;
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]subscriber, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller_end (bstar_zloop (self[[span style="color:#666666"]]->[[/span]]bstar), [[span style="color:#666666"]]&[[/span]]poller);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Apply pending list to own hash table//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (self[[span style="color:#666666"]]->[[/span]]pending)) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (self[[span style="color:#666666"]]->[[/span]]pending);
+{{@@        @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}kvmsg_send (kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: publishing pending=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}We're becoming slave[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_new_slave[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]unused, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]master [[span style="color:#666666"]]=[[/span]] FALSE;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]slave [[span style="color:#666666"]]=[[/span]] TRUE;
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]subscriber, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller (bstar_zloop (self[[span style="color:#666666"]]->[[/span]]bstar), [[span style="color:#666666"]]&[[/span]]poller, s_subscriber, self);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Collect updates from peer (master)
+@@//@@{{@@  @@}}We're always slave when we get these updates[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_subscriber[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get state snapshot if necessary//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]kvmap [[span style="color:#666666"]]==[[/span]] [[span style="color:#008000"]]NULL[[/span]]) {
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@        @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_DEALER);
+{{@@        @@}}zsocket_connect (snapshot, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]peer);
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: asking for snapshot from: tcp:@@//@@localhost:%d"[[/span]],
+{{@@                    @@}}self[[span style="color:#666666"]]->[[/span]]peer);
+{{@@        @@}}zstr_send (snapshot, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (snapshot);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (kvmsg_key (kvmsg), [[span style="color:#BA2121"]]"KTHXBAI"[[/span]])) {
+{{@@                @@}}self[[span style="color:#666666"]]->[[/span]]sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@                @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Done//[[/span]]
+{{@@            @@}}}
+{{@@            @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}}
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: received snapshot=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}zsocket_destroy (self[[span style="color:#666666"]]->[[/span]]ctx, snapshot);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Find and remove update off pending list//[[/span]]
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@        @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (strneq (kvmsg_key (kvmsg), [[span style="color:#BA2121"]]"HUGZ"[[/span]])) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]s_was_pending (self, kvmsg)) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If master update came before client update, flip it//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}around, store master update (with sequence) on pending//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}list and use to clear client update when it comes later//[[/span]]
+{{@@            @@}}zlist_append (self[[span style="color:#666666"]]->[[/span]]pending, kvmsg_dup (kvmsg));
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If update is more recent than our kvmap, apply it//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg_sequence (kvmsg) [[span style="color:#666666"]]>[[/span]] self[[span style="color:#666666"]]->[[/span]]sequence) {
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@            @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: received update=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

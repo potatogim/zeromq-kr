@@ -1,0 +1,186 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Clone server Model Five
+@@//@@
+
+@@//@@{{@@  @@}}Lets us build this source without creating a library
+#include "kvmsg.c"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}zloop reactor handlers//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_snapshots{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_collector{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_flush_ttl{{@@  @@}}(zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our server is defined by these properties//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Context wrapper//[[/span]]
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Key-value store//[[/span]]
+{{@@    @@}}zloop_t [[span style="color:#666666"]]*[[/span]]loop;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}zloop reactor//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] port;{{@@                   @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Main port we're working on//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many updates we're at//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle snapshot requests//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Publish updates to clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]collector;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Collect updates from clients//[[/span]]
+} clonesrv_t;
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (clonesrv_t));
+
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5556[[/span]];
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]loop [[span style="color:#666666"]]=[[/span]] zloop_new ();
+{{@@    @@}}zloop_set_verbose (self[[span style="color:#666666"]]->[[/span]]loop, FALSE);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set up our clone server sockets//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]snapshot{{@@  @@}}[[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_ROUTER);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_PUB);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]collector [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_PULL);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]snapshot,{{@@  @@}}[[span style="color:#BA2121"]]"tcp:@@//@@*:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]port);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]collector, [[span style="color:#BA2121"]]"tcp:@@//@@*:%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]port [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Register our handlers with reactor//[[/span]]
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]snapshot, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#666666"]]&[[/span]]poller, s_snapshots, self);
+{{@@    @@}}poller.socket [[span style="color:#666666"]]=[[/span]] self[[span style="color:#666666"]]->[[/span]]collector;
+{{@@    @@}}zloop_poller (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#666666"]]&[[/span]]poller, s_collector, self);
+{{@@    @@}}zloop_timer{{@@  @@}}(self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#666666"]]1000[[/span]], [[span style="color:#666666"]]0[[/span]], s_flush_ttl, self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Run reactor until process interrupted//[[/span]]
+{{@@    @@}}zloop_start (self[[span style="color:#666666"]]->[[/span]]loop);
+
+{{@@    @@}}zloop_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]loop);
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@    @@}}free (self);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send snapshots to clients who ask for them[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_send_single ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Routing information for a key-value snapshot//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}ROUTER socket to send to//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity;{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Identity of peer who requested state//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree;{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Client subtree specification//[[/span]]
+} kvroute_t;
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_snapshots[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (identity) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request is in second frame of message//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zstr_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]subtree [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (request, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]])) {
+{{@@            @@}}free (request);
+{{@@            @@}}subtree [[span style="color:#666666"]]=[[/span]] zstr_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: bad request, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (subtree) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send state socket to client//[[/span]]
+{{@@            @@}}kvroute_t routing [[span style="color:#666666"]]=[[/span]] { poller[[span style="color:#666666"]]->[[/span]]socket, identity, subtree };
+{{@@            @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]kvmap, s_send_single, [[span style="color:#666666"]]&[[/span]]routing);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now send END message with sequence number//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: sending shapshot=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]identity, poller[[span style="color:#666666"]]->[[/span]]socket, ZFRAME_MORE);
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new (self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@            @@}}kvmsg_set_key{{@@  @@}}(kvmsg, [[span style="color:#BA2121"]]"KTHXBAI"[[/span]]);
+{{@@            @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) subtree, [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}kvmsg_send{{@@     @@}}(kvmsg, poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}free (subtree);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Send one state snapshot key-value pair to a socket
+@@//@@{{@@  @@}}Hash item data is our kvmsg object, ready to send[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_send_single[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}kvroute_t [[span style="color:#666666"]]*[[/span]]kvroute [[span style="color:#666666"]]=[[/span]] (kvroute_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) data;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (strlen (kvroute[[span style="color:#666666"]]->[[/span]]subtree) [[span style="color:#666666"]]<=[[/span]] strlen (kvmsg_key (kvmsg))
+{{@@    @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (kvroute[[span style="color:#666666"]]->[[/span]]subtree,
+{{@@                @@}}kvmsg_key (kvmsg), strlen (kvroute[[span style="color:#666666"]]->[[/span]]subtree)) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send identity of recipient first//[[/span]]
+{{@@        @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]kvroute[[span style="color:#666666"]]->[[/span]]identity,
+{{@@            @@}}kvroute[[span style="color:#666666"]]->[[/span]]socket, ZFRAME_MORE [[span style="color:#666666"]]+[[/span]] ZFRAME_REUSE);
+{{@@        @@}}kvmsg_send (kvmsg, kvroute[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Collect updates from clients[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_collector[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg) {
+{{@@        @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}kvmsg_send (kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] ttl [[span style="color:#666666"]]=[[/span]] atoi (kvmsg_get_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]]));
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (ttl)
+{{@@            @@}}kvmsg_set_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]],
+{{@@                @@}}[[span style="color:#BA2121"]]"%"[[/span]] PRId64, zclock_time () [[span style="color:#666666"]]+[[/span]] ttl [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]1000[[/span]]);
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: publishing update=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Purge ephemeral values that have expired[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_flush_single ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_flush_ttl[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}zhash_foreach (self[[span style="color:#666666"]]->[[/span]]kvmap, s_flush_single, args);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}If key-value pair has expired, delete it and publish the
+@@//@@{{@@  @@}}fact to listening clients.[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_flush_single[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}clonesrv_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (clonesrv_t [[span style="color:#666666"]]*[[/span]]) args;
+
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) data;
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] ttl;
+{{@@    @@}}sscanf (kvmsg_get_prop (kvmsg, [[span style="color:#BA2121"]]"ttl"[[/span]]), [[span style="color:#BA2121"]]"%"[[/span]] PRId64, [[span style="color:#666666"]]&[[/span]]ttl);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (ttl [[span style="color:#666666"]]&&[[/span]] zclock_time () [[span style="color:#666666"]]>=[[/span]] ttl) {
+{{@@        @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@        @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}kvmsg_send (kvmsg, self[[span style="color:#666666"]]->[[/span]]publisher);
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, self[[span style="color:#666666"]]->[[/span]]kvmap);
+{{@@        @@}}zclock_log ([[span style="color:#BA2121"]]"I: publishing delete=%d"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

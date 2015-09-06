@@ -1,0 +1,51 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Clone client Model Two
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "kvsimple.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and subscriber//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_DEALER);
+{{@@    @@}}zsocket_connect (snapshot, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get state snapshot//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}zstr_send (snapshot, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]]);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (snapshot);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (kvmsg_key (kvmsg), [[span style="color:#BA2121"]]"KTHXBAI"[[/span]])) {
+{{@@            @@}}sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"Received snapshot=%d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Done//[[/span]]
+{{@@        @@}}}
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now apply pending updates, discard out-of-sequence messages//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (subscriber);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (kvmsg_sequence (kvmsg) [[span style="color:#666666"]]>[[/span]] sequence) {
+{{@@            @@}}sequence [[span style="color:#666666"]]=[[/span]] kvmsg_sequence (kvmsg);
+{{@@            @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@    @@}}}
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

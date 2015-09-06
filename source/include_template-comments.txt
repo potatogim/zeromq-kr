@@ -1,0 +1,7 @@
+[[include include:template-a]]
+%%content%%
+
+[[# comments]]
+++ **Comments:** %%comments%%
+[[module Comments hideForm="true"]]
+[[include include:template-b]]

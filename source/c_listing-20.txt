@@ -1,0 +1,20 @@
+[[div class="code"]]
+[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Read and save all frames until we get an empty frame//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}In this example there is only 1 but it could be more//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@    @@}}assert ([[span style="color:#666666"]]*[[/span]]empty [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}free (empty);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get request, send reply//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Worker: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request);
+{{@@    @@}}free (request);
+
+{{@@    @@}}s_sendmore (worker, address);
+{{@@    @@}}s_sendmore (worker, [[span style="color:#BA2121"]]""[[/span]]);
+{{@@    @@}}s_send{{@@     @@}}(worker, [[span style="color:#BA2121"]]"OK"[[/span]]);
+{{@@    @@}}free (address);
+}
+[[/div]]

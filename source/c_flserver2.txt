@@ -1,0 +1,40 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Freelance server - Model 2
+@@//@@{{@@  @@}}Does some work, replies OK, with message sequencing
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]2[[/span]]) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: syntax: %s <endpoint>[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], argv @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@);
+{{@@        @@}}exit (EXIT_SUCCESS);
+{{@@    @@}}}
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REP);
+{{@@    @@}}zsocket_bind (server, argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@);
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: service is ready at %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@);
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_recv (server);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]request)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Fail nastily if run against wrong client//[[/span]]
+{{@@        @@}}assert (zmsg_size (request) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]2[[/span]]);
+
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_pop (request);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_add (reply, address);
+{{@@        @@}}zmsg_addstr (reply, [[span style="color:#BA2121"]]"OK"[[/span]]);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]reply, server);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"W: interrupted[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

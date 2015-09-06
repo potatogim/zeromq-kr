@@ -1,0 +1,99 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Clone server Model Three
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "kvsimple.c"[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]] s_send_single ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args);
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Routing information for a key-value snapshot//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] {
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}ROUTER socket to send to//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity;{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Identity of peer who requested state//[[/span]]
+} kvroute_t;
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]snapshot [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (snapshot, [[span style="color:#BA2121"]]"tcp:@@//@@*:5556"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]publisher [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PUB);
+{{@@    @@}}zsocket_bind (publisher, [[span style="color:#BA2121"]]"tcp:@@//@@*:5557"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]collector [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_PULL);
+{{@@    @@}}zsocket_bind (collector, [[span style="color:#BA2121"]]"tcp:@@//@@*:5558"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@        @@}}{ collector, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@        @@}}{ snapshot, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@    @@}}};
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Apply state update sent from client//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (collector);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}kvmsg_set_sequence (kvmsg, [[span style="color:#666666"]]++[[/span]]sequence);
+{{@@            @@}}kvmsg_send (kvmsg, publisher);
+{{@@            @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: publishing update %5d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Execute state snapshot request//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]identity [[span style="color:#666666"]]=[[/span]] zframe_recv (snapshot);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]identity)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request is in second frame of message//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zstr_recv (snapshot);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (streq (request, [[span style="color:#BA2121"]]"ICANHAZ?"[[/span]]))
+{{@@                @@}}free (request);
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"E: bad request, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send state snapshot to client//[[/span]]
+{{@@            @@}}kvroute_t routing [[span style="color:#666666"]]=[[/span]] { snapshot, identity };
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For each entry in kvmap, send kvmsg to client//[[/span]]
+{{@@            @@}}zhash_foreach (kvmap, s_send_single, [[span style="color:#666666"]]&[[/span]]routing);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now send END message with sequence number//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: sending shapshot=%d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@            @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]identity, snapshot, ZFRAME_MORE);
+{{@@            @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_new (sequence);
+{{@@            @@}}kvmsg_set_key{{@@  @@}}(kvmsg, [[span style="color:#BA2121"]]"KTHXBAI"[[/span]]);
+{{@@            @@}}kvmsg_set_body (kvmsg, (byte [[span style="color:#666666"]]*[[/span]]) [[span style="color:#BA2121"]]""[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}kvmsg_send{{@@     @@}}(kvmsg, snapshot);
+{{@@            @@}}kvmsg_destroy ([[span style="color:#666666"]]&[[/span]]kvmsg);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]" Interrupted[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]%d messages handled[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Send one state snapshot key-value pair to a socket
+@@//@@{{@@  @@}}Hash item data is our kvmsg object, ready to send[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_send_single[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]key, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]data, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}kvroute_t [[span style="color:#666666"]]*[[/span]]kvroute [[span style="color:#666666"]]=[[/span]] (kvroute_t [[span style="color:#666666"]]*[[/span]]) args;
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send identity of recipient first//[[/span]]
+{{@@    @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]kvroute[[span style="color:#666666"]]->[[/span]]identity,
+{{@@        @@}}kvroute[[span style="color:#666666"]]->[[/span]]socket, ZFRAME_MORE [[span style="color:#666666"]]+[[/span]] ZFRAME_REUSE);
+{{@@    @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] (kvmsg_t [[span style="color:#666666"]]*[[/span]]) data;
+{{@@    @@}}kvmsg_send (kvmsg, kvroute[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

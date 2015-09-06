@@ -1,0 +1,3 @@
+[[div class="code"]]
+socket[[span style="color:#666666"]].[[/span]]send ([[span style="color:#BA2121"]]"Hello"[[/span]])
+[[/div]]

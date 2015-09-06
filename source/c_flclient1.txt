@@ -1,0 +1,75 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Freelance client - Model 1
+@@//@@{{@@  @@}}Uses REQ socket to query one or more services
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+
+#define REQUEST_TIMEOUT{{@@     @@}}1000
+#define MAX_RETRIES{{@@         @@}}3{{@@       @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Before we abandon//[[/span]]
+
+
+[[span style="color:#008000"]]**static**[[/span]] zmsg_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_try_request[[/span]] (zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint, zmsg_t [[span style="color:#666666"]]*[[/span]]request)
+{
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: trying echo service at %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], endpoint);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (client, endpoint);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send request, wait safely for reply//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_dup (request);
+{{@@    @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, client);
+{{@@    @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { client, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@    @@}}zmq_poll (items, [[span style="color:#666666"]]1[[/span]], REQUEST_TIMEOUT [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN)
+{{@@        @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_recv (client);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Close socket in any case, we're done with it now//[[/span]]
+{{@@    @@}}zsocket_destroy (ctx, client);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] reply;
+}
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (request, [[span style="color:#BA2121"]]"Hello world"[[/span]]);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] endpoints [[span style="color:#666666"]]=[[/span]] argc [[span style="color:#666666"]]-[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (endpoints [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: syntax: %s <endpoint> ...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], argv @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@);
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (endpoints [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For one endpoint, we retry N times//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] retries;
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (retries [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; retries [[span style="color:#666666"]]<[[/span]] MAX_RETRIES; retries[[span style="color:#666666"]]++[[/span]]) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint [[span style="color:#666666"]]=[[/span]] argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@;
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] s_try_request (ctx, endpoint, request);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (reply)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Successful//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"W: no response from %s, retrying...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], endpoint);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}For multiple endpoints, try each at most once//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] endpoint_nbr;
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (endpoint_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; endpoint_nbr [[span style="color:#666666"]]<[[/span]] endpoints; endpoint_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint [[span style="color:#666666"]]=[[/span]] argv @@[@@endpoint_nbr [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]@@]@@;
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] s_try_request (ctx, endpoint, request);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (reply)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Successful//[[/span]]
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"W: no response from %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], endpoint);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply)
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Service is running OK[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,4 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]int[[/span]] zero [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+zmq_setsockopt (mysocket, ZMQ_LINGER, [[span style="color:#666666"]]&[[/span]]zero, [[span style="color:#008000"]]**sizeof**[[/span]] (zero));
+[[/div]]

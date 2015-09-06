@@ -1,0 +1,15 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Report 0MQ version
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] major, minor, patch;
+{{@@    @@}}zmq_version ([[span style="color:#666666"]]&[[/span]]major, [[span style="color:#666666"]]&[[/span]]minor, [[span style="color:#666666"]]&[[/span]]patch);
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Current 0MQ version is %d.%d.%d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], major, minor, patch);
+
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] EXIT_SUCCESS;
+}
+[[/div]]

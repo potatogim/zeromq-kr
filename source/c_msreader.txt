@@ -1,0 +1,53 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Reading from multiple sockets
+@@//@@{{@@  @@}}This version uses a simple recv loop
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to task ventilator//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]receiver [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_PULL);
+{{@@    @@}}zmq_connect (receiver, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5557"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to weather server//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_SUBSCRIBE, [[span style="color:#BA2121"]]"10001 "[[/span]], [[span style="color:#666666"]]6[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages from both sockets//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We prioritize traffic from the task ventilator//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process any waiting tasks//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc;
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; [[span style="color:#666666"]]![[/span]]rc; ) {
+{{@@            @@}}zmq_msg_t task;
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]task);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ((rc [[span style="color:#666666"]]=[[/span]] zmq_recv (receiver, [[span style="color:#666666"]]&[[/span]]task, ZMQ_NOBLOCK)) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}process task//[[/span]]
+{{@@            @@}}}
+{{@@            @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]task);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process any waiting weather updates//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; [[span style="color:#666666"]]![[/span]]rc; ) {
+{{@@            @@}}zmq_msg_t update;
+{{@@            @@}}zmq_msg_init ([[span style="color:#666666"]]&[[/span]]update);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ((rc [[span style="color:#666666"]]=[[/span]] zmq_recv (subscriber, [[span style="color:#666666"]]&[[/span]]update, ZMQ_NOBLOCK)) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}process weather update//[[/span]]
+{{@@            @@}}}
+{{@@            @@}}zmq_msg_close ([[span style="color:#666666"]]&[[/span]]update);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}No activity, so sleep for 1 msec//[[/span]]
+{{@@        @@}}s_sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here but clean up anyhow//[[/span]]
+{{@@    @@}}zmq_close (receiver);
+{{@@    @@}}zmq_close (subscriber);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

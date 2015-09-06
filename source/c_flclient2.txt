@@ -1,0 +1,167 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Freelance client - Model 2
+@@//@@{{@@  @@}}Uses DEALER socket to blast one or more services
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}If not a single service replies within this time, give up//[[/span]]
+[[span style="color:#BC7A00"]]#define GLOBAL_TIMEOUT 2500[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}We design our client API as a class//[[/span]]
+[[span style="color:#BC7A00"]]
+#ifdef @@__@@cplusplus[[/span]]
+[[span style="color:#008000"]]**extern**[[/span]] [[span style="color:#BA2121"]]"C"[[/span]] {
+[[span style="color:#BC7A00"]]#endif[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Opaque class structure//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**struct**[[/span]] _flclient_t flclient_t;
+
+flclient_t [[span style="color:#666666"]]*[[/span]]
+{{@@    @@}}flclient_new ([[span style="color:#B00040"]]void[[/span]]);
+[[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}flclient_destroy (flclient_t [[span style="color:#666666"]]@@**@@[[/span]]self_p);
+[[span style="color:#B00040"]]void[[/span]]
+{{@@    @@}}flclient_connect (flclient_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint);
+zmsg_t [[span style="color:#666666"]]*[[/span]]
+{{@@    @@}}flclient_request (flclient_t [[span style="color:#666666"]]*[[/span]]self, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]request_p);
+[[span style="color:#BC7A00"]]
+#ifdef @@__@@cplusplus[[/span]]
+}
+[[span style="color:#BC7A00"]]#endif[[/span]]
+
+
+[[span style="color:#B00040"]]int[[/span]] main ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: syntax: %s <endpoint> ...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], argv @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@);
+{{@@        @@}}exit (EXIT_SUCCESS);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create new freelance client object//[[/span]]
+{{@@    @@}}flclient_t [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] flclient_new ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect to each endpoint//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] argn;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (argn [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]]; argn [[span style="color:#666666"]]<[[/span]] argc; argn[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}flclient_connect (client, argv @@[@@argn@@]@@);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send a bunch of name resolution 'requests', measure time//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] requests [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]10000[[/span]];
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] start [[span style="color:#666666"]]=[[/span]] zclock_time ();
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (requests[[span style="color:#666666"]]@@--@@[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_addstr (request, [[span style="color:#BA2121"]]"random name"[[/span]]);
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] flclient_request (client, [[span style="color:#666666"]]&[[/span]]request);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]reply) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: name service not available, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Average round trip cost: %d usec[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@        @@}}([[span style="color:#B00040"]]int[[/span]]) (zclock_time () [[span style="color:#666666"]]-[[/span]] start) [[span style="color:#666666"]]/[[/span]] [[span style="color:#666666"]]10[[/span]]);
+
+{{@@    @@}}flclient_destroy ([[span style="color:#666666"]]&[[/span]]client);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@--------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Structure of our class[[/span]][[/span]]
+
+[[span style="color:#008000"]]**struct**[[/span]] _flclient_t {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our context wrapper//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket;{{@@       @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}DEALER socket talking to servers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]size_t[[/span]] servers;{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}How many servers we have connected to//[[/span]]
+{{@@    @@}}uint sequence;{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Number of requests ever sent//[[/span]]
+};
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@--------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor[[/span]][[/span]]
+
+flclient_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]flclient_new[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}flclient_t
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self;
+
+{{@@    @@}}self [[span style="color:#666666"]]=[[/span]] (flclient_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (flclient_t));
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]socket [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_DEALER);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@--------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]flclient_destroy[[/span]] (flclient_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}flclient_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@--------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Connect to new server endpoint[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]flclient_connect[[/span]] (flclient_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]socket, endpoint);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]servers[[span style="color:#666666"]]++[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@--------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Send request, get reply
+@@//@@{{@@  @@}}Destroys request after sending[[/span]][[/span]]
+
+zmsg_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]flclient_request[[/span]] (flclient_t [[span style="color:#666666"]]*[[/span]]self, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]request_p)
+{
+{{@@    @@}}assert (self);
+{{@@    @@}}assert ([[span style="color:#666666"]]*[[/span]]request_p);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]request_p;
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prefix request with sequence number and empty envelope//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] sequence_text @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@    @@}}sprintf (sequence_text, [[span style="color:#BA2121"]]"%u"[[/span]], [[span style="color:#666666"]]++[[/span]]self[[span style="color:#666666"]]->[[/span]]sequence);
+{{@@    @@}}zmsg_pushstr (request, sequence_text);
+{{@@    @@}}zmsg_pushstr (request, [[span style="color:#BA2121"]]""[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Blast the request to all connected servers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] server;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (server [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; server [[span style="color:#666666"]]<[[/span]] self[[span style="color:#666666"]]->[[/span]]servers; server[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_dup (request);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, self[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for a matching reply to arrive from anywhere//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Since we can poll several times, calculate each one//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}[[span style="color:#B00040"]]uint64_t[[/span]] endtime [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] GLOBAL_TIMEOUT;
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zclock_time () [[span style="color:#666666"]]<[[/span]] endtime) {
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { self[[span style="color:#666666"]]->[[/span]]socket, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}zmq_poll (items, [[span style="color:#666666"]]1[[/span]], (endtime [[span style="color:#666666"]]-[[/span]] zclock_time ()) [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Reply is @@[@@empty@@][@@sequence@@][@@OK@@]@@[[/span]][[/span]]
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_recv (self[[span style="color:#666666"]]->[[/span]]socket);
+{{@@            @@}}assert (zmsg_size (reply) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]3[[/span]]);
+{{@@            @@}}free (zmsg_popstr (reply));
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]sequence [[span style="color:#666666"]]=[[/span]] zmsg_popstr (reply);
+{{@@            @@}}[[span style="color:#B00040"]]int[[/span]] sequence_nbr [[span style="color:#666666"]]=[[/span]] atoi (sequence);
+{{@@            @@}}free (sequence);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (sequence_nbr [[span style="color:#666666"]]==[[/span]] self[[span style="color:#666666"]]->[[/span]]sequence)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zmsg_destroy (request_p);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] reply;
+}
+[[/div]]

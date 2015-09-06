@@ -1,0 +1,285 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Titanic service
+@@//@@
+@@//@@{{@@  @@}}Implements server side of http:@@//@@rfc.zeromq.org/spec:9
+
+@@//@@{{@@  @@}}Lets us build this source without creating a library
+#include "mdwrkapi.c"
+#include "mdcliapi.c"
+
+#include "zfile.h"
+#include <uuid/uuid.h>[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Return a new UUID as a printable character string
+@@//@@{{@@  @@}}Caller must free returned string when finished with it[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_generate_uuid[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] hex_char @@[]@@ [[span style="color:#666666"]]=[[/span]] [[span style="color:#BA2121"]]"0123456789ABCDEF"[[/span]];
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuidstr [[span style="color:#666666"]]=[[/span]] zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (uuid_t) [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}uuid_t uuid;
+{{@@    @@}}uuid_generate (uuid);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] byte_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (byte_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; byte_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#008000"]]**sizeof**[[/span]] (uuid_t); byte_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}uuidstr @@[@@byte_nbr [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]0[[/span]]@@]@@ [[span style="color:#666666"]]=[[/span]] hex_char @@[@@uuid @@[@@byte_nbr@@]@@ [[span style="color:#666666"]]@@>>@@[[/span]] [[span style="color:#666666"]]4[[/span]]@@]@@;
+{{@@        @@}}uuidstr @@[@@byte_nbr [[span style="color:#666666"]]*[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]@@]@@ [[span style="color:#666666"]]=[[/span]] hex_char @@[@@uuid @@[@@byte_nbr@@]@@ [[span style="color:#666666"]]&[[/span]] [[span style="color:#666666"]]15[[/span]]@@]@@;
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] uuidstr;
+}
+[[span style="color:#BC7A00"]]
+@@//@@{{@@  @@}}Returns freshly allocated request filename for given UUID
+
+#define TITANIC_DIR ".titanic"[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_request_filename[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid) {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]filename [[span style="color:#666666"]]=[[/span]] malloc ([[span style="color:#666666"]]256[[/span]]);
+{{@@    @@}}snprintf (filename, [[span style="color:#666666"]]256[[/span]], TITANIC_DIR [[span style="color:#BA2121"]]"/%s.req"[[/span]], uuid);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] filename;
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Returns freshly allocated reply filename for given UUID//[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_reply_filename[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid) {
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]filename [[span style="color:#666666"]]=[[/span]] malloc ([[span style="color:#666666"]]256[[/span]]);
+{{@@    @@}}snprintf (filename, [[span style="color:#666666"]]256[[/span]], TITANIC_DIR [[span style="color:#BA2121"]]"/%s.rep"[[/span]], uuid);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] filename;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Titanic request service[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]titanic_request[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args, zctx_t [[span style="color:#666666"]]*[[/span]]ctx, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]pipe)
+{
+{{@@    @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] mdwrk_new (
+{{@@        @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], [[span style="color:#BA2121"]]"titanic.request"[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send reply if it's not null//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}And then get next request from broker//[[/span]]
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] mdwrk_recv (worker, [[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]request)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted, exit//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Ensure message directory exists//[[/span]]
+{{@@        @@}}zfile_mkdir (TITANIC_DIR);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Generate UUID and save message to disk//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid [[span style="color:#666666"]]=[[/span]] s_generate_uuid ();
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]filename [[span style="color:#666666"]]=[[/span]] s_request_filename (uuid);
+{{@@        @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (filename, [[span style="color:#BA2121"]]"w"[[/span]]);
+{{@@        @@}}assert (file);
+{{@@        @@}}zmsg_save (request, file);
+{{@@        @@}}fclose (file);
+{{@@        @@}}free (filename);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send UUID through to message queue//[[/span]]
+{{@@        @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_addstr (reply, uuid);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]reply, pipe);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now send UUID back to client//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Done by the mdwrk_recv() at the top of the loop//[[/span]]
+{{@@        @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_addstr (reply, [[span style="color:#BA2121"]]"200"[[/span]]);
+{{@@        @@}}zmsg_addstr (reply, uuid);
+{{@@        @@}}free (uuid);
+{{@@    @@}}}
+{{@@    @@}}mdwrk_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Titanic reply service[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]titanic_reply[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context)
+{
+{{@@    @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] mdwrk_new (
+{{@@        @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], [[span style="color:#BA2121"]]"titanic.reply"[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] mdwrk_recv (worker, [[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]request)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted, exit//[[/span]]
+
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid [[span style="color:#666666"]]=[[/span]] zmsg_popstr (request);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]req_filename [[span style="color:#666666"]]=[[/span]] s_request_filename (uuid);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]rep_filename [[span style="color:#666666"]]=[[/span]] s_reply_filename (uuid);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zfile_exists (rep_filename)) {
+{{@@            @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (rep_filename, [[span style="color:#BA2121"]]"r"[[/span]]);
+{{@@            @@}}assert (file);
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_load ([[span style="color:#008000"]]NULL[[/span]], file);
+{{@@            @@}}zmsg_pushstr (reply, [[span style="color:#BA2121"]]"200"[[/span]]);
+{{@@            @@}}fclose (file);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zfile_exists (req_filename))
+{{@@                @@}}zmsg_pushstr (reply, [[span style="color:#BA2121"]]"300"[[/span]]); [[span style="color:#408080"]]//@@//@@Pending//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}zmsg_pushstr (reply, [[span style="color:#BA2121"]]"400"[[/span]]); [[span style="color:#408080"]]//@@//@@Unknown//[[/span]]
+{{@@        @@}}}
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+{{@@        @@}}free (uuid);
+{{@@        @@}}free (req_filename);
+{{@@        @@}}free (rep_filename);
+{{@@    @@}}}
+{{@@    @@}}mdwrk_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Titanic close service[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]titanic_close[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context)
+{
+{{@@    @@}}mdwrk_t [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] mdwrk_new (
+{{@@        @@}}[[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], [[span style="color:#BA2121"]]"titanic.close"[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] mdwrk_recv (worker, [[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]request)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted, exit//[[/span]]
+
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid [[span style="color:#666666"]]=[[/span]] zmsg_popstr (request);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]req_filename [[span style="color:#666666"]]=[[/span]] s_request_filename (uuid);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]rep_filename [[span style="color:#666666"]]=[[/span]] s_reply_filename (uuid);
+{{@@        @@}}zfile_delete (req_filename);
+{{@@        @@}}zfile_delete (rep_filename);
+{{@@        @@}}free (uuid);
+{{@@        @@}}free (req_filename);
+{{@@        @@}}free (rep_filename);
+
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+{{@@        @@}}reply [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_addstr (reply, [[span style="color:#BA2121"]]"200"[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}mdwrk_destroy ([[span style="color:#666666"]]&[[/span]]worker);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Attempt to process a single request, return 1 if successful//[[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_service_success[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Load request message, service will be first frame//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]filename [[span style="color:#666666"]]=[[/span]] s_request_filename (uuid);
+{{@@    @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (filename, [[span style="color:#BA2121"]]"r"[[/span]]);
+{{@@    @@}}free (filename);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If the client already closed request, treat as successful//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]file)
+{{@@        @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]1[[/span]];
+
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_load ([[span style="color:#008000"]]NULL[[/span]], file);
+{{@@    @@}}fclose (file);
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]service [[span style="color:#666666"]]=[[/span]] zmsg_pop (request);
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service_name [[span style="color:#666666"]]=[[/span]] zframe_strdup (service);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create MDP client session with short timeout//[[/span]]
+{{@@    @@}}mdcli_t [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] mdcli_new ([[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], FALSE);
+{{@@    @@}}mdcli_set_timeout (client, [[span style="color:#666666"]]1000[[/span]]);{{@@  @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}1 sec//[[/span]]
+{{@@    @@}}mdcli_set_retries (client, [[span style="color:#666666"]]1[[/span]]);{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}only 1 retry//[[/span]]
+{{@@    @@}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Use MMI protocol to check if service is available//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]mmi_request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_add (mmi_request, service);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]mmi_reply [[span style="color:#666666"]]=[[/span]] mdcli_send (client, [[span style="color:#BA2121"]]"mmi.service"[[/span]], [[span style="color:#666666"]]&[[/span]]mmi_request);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] service_ok [[span style="color:#666666"]]=[[/span]] (mmi_reply
+{{@@        @@}}[[span style="color:#666666"]]&&[[/span]] zframe_streq (zmsg_first (mmi_reply), [[span style="color:#BA2121"]]"200"[[/span]]));
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]mmi_reply);
+
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (service_ok) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] mdcli_send (client, service_name, [[span style="color:#666666"]]&[[/span]]request);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@            @@}}filename [[span style="color:#666666"]]=[[/span]] s_reply_filename (uuid);
+{{@@            @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (filename, [[span style="color:#BA2121"]]"w"[[/span]]);
+{{@@            @@}}assert (file);
+{{@@            @@}}zmsg_save (reply, file);
+{{@@            @@}}fclose (file);
+{{@@            @@}}free (filename);
+{{@@            @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}}
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]request);
+
+{{@@    @@}}mdcli_destroy ([[span style="color:#666666"]]&[[/span]]client);
+{{@@    @@}}free (service_name);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]request_pipe [[span style="color:#666666"]]=[[/span]] zthread_fork (ctx, titanic_request, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (titanic_reply, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}zthread_new (titanic_close, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Main dispatcher loop//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We'll dispatch once per second, if there's no activity//[[/span]]
+{{@@        @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { request_pipe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Ensure message directory exists//[[/span]]
+{{@@            @@}}zfile_mkdir (TITANIC_DIR);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Append UUID to queue, prefixed with '-' for pending//[[/span]]
+{{@@            @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (request_pipe);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (TITANIC_DIR [[span style="color:#BA2121"]]"/queue"[[/span]], [[span style="color:#BA2121"]]"a"[[/span]]);
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]uuid [[span style="color:#666666"]]=[[/span]] zmsg_popstr (msg);
+{{@@            @@}}fprintf (file, [[span style="color:#BA2121"]]"-%s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], uuid);
+{{@@            @@}}fclose (file);
+{{@@            @@}}free (uuid);
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Brute-force dispatcher//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] entry @@[]@@ [[span style="color:#666666"]]=[[/span]] [[span style="color:#BA2121"]]"?.......:.......:.......:.......:"[[/span]];
+{{@@        @@}}[[span style="color:#B00040"]]FILE[[/span]] [[span style="color:#666666"]]*[[/span]]file [[span style="color:#666666"]]=[[/span]] fopen (TITANIC_DIR [[span style="color:#BA2121"]]"/queue"[[/span]], [[span style="color:#BA2121"]]"r+"[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**while**[[/span]] (file [[span style="color:#666666"]]&&[[/span]] fread (entry, [[span style="color:#666666"]]33[[/span]], [[span style="color:#666666"]]1[[/span]], file) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]1[[/span]]) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}UUID is prefixed with '-' if still waiting//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (entry @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@ [[span style="color:#666666"]]==[[/span]] [[span style="color:#BA2121"]]'-'[[/span]]) {
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (verbose)
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"I: processing request %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], entry [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (s_service_success (entry [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]])) {
+{{@@                    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Mark queue entry as processed//[[/span]]
+{{@@                    @@}}fseek (file, [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]33[[/span]], SEEK_CUR);
+{{@@                    @@}}fwrite ([[span style="color:#BA2121"]]"+"[[/span]], [[span style="color:#666666"]]1[[/span]], [[span style="color:#666666"]]1[[/span]], file);
+{{@@                    @@}}fseek (file, [[span style="color:#666666"]]32[[/span]], SEEK_CUR);
+{{@@                @@}}}
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Skip end of line, LF or CRLF//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (fgetc (file) [[span style="color:#666666"]]==[[/span]] [[span style="color:#BA2121"]]'\r'[[/span]])
+{{@@                @@}}fgetc (file);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (file)
+{{@@            @@}}fclose (file);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

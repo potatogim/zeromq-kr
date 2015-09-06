@@ -1,0 +1,40 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Weather update client
+@@//@@{{@@  @@}}Connects SUB socket to tcp:@@//@@localhost:5556
+@@//@@{{@@  @@}}Collects weather updates and finds avg temp in zipcode
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket to talk to server//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Collecting updates from weather server...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Subscribe to zipcode, default is NYC, 10001//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]filter [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]])[[span style="color:#666666"]]?[[/span]] argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@[[span style="color:#666666"]]:[[/span]] [[span style="color:#BA2121"]]"10001 "[[/span]];
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_SUBSCRIBE, filter, strlen (filter));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process 100 updates//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] update_nbr;
+{{@@    @@}}[[span style="color:#B00040"]]long[[/span]] total_temp [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (update_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; update_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]100[[/span]]; update_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]string [[span style="color:#666666"]]=[[/span]] s_recv (subscriber);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] zipcode, temperature, relhumidity;
+{{@@        @@}}sscanf (string, [[span style="color:#BA2121"]]"%d %d %d"[[/span]],
+{{@@            @@}}[[span style="color:#666666"]]&[[/span]]zipcode, [[span style="color:#666666"]]&[[/span]]temperature, [[span style="color:#666666"]]&[[/span]]relhumidity);
+{{@@        @@}}total_temp [[span style="color:#666666"]]+=[[/span]] temperature;
+{{@@        @@}}free (string);
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Average temperature for zipcode '%s' was %dF[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@        @@}}filter, ([[span style="color:#B00040"]]int[[/span]]) (total_temp [[span style="color:#666666"]]/[[/span]] update_nbr));
+
+{{@@    @@}}zmq_close (subscriber);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

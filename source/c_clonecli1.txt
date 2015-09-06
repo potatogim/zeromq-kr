@@ -1,0 +1,31 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Clone client Model One
+@@//@@[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "kvsimple.c"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and updates socket//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]updates [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (updates, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}zhash_t [[span style="color:#666666"]]*[[/span]]kvmap [[span style="color:#666666"]]=[[/span]] zhash_new ();
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] sequence [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (TRUE) {
+{{@@        @@}}kvmsg_t [[span style="color:#666666"]]*[[/span]]kvmsg [[span style="color:#666666"]]=[[/span]] kvmsg_recv (updates);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]kvmsg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}kvmsg_store ([[span style="color:#666666"]]&[[/span]]kvmsg, kvmap);
+{{@@        @@}}sequence[[span style="color:#666666"]]++[[/span]];
+{{@@    @@}}}
+{{@@    @@}}printf ([[span style="color:#BA2121"]]" Interrupted[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]%d messages in[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], ([[span style="color:#B00040"]]int[[/span]]) sequence);
+{{@@    @@}}zhash_destroy ([[span style="color:#666666"]]&[[/span]]kvmap);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

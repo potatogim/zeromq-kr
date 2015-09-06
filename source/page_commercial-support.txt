@@ -1,0 +1,12 @@
+[/page:start 지능형 전송 레이어] » Commercial Support
+
+++ From iMatix Corporation
+[http://www.imatix.com/contact iMatix] (Belgium)은 가이드, C바인딩, 릴리즈 배포판을 유지관리 합니다. 전문분야 : 대규모 아키텍쳐, 교육, 배치, 채용, 지원, 법률은 [[span class="wiki-email"]]moc.xitami|hp#snejtniH reteiP[[/span]]에게 문의 하십시오.
+
+++ From our Trusted Partners
+
+[http://miru.hk/ Miru] (Hong Kong) 는 OpenPGM multicast 라이브러리를 유지관리 합니다. 전문분야 : ØMQ+OpenPGM.  문의는 [[span class="wiki-email"]]kh.urim|selas#yoCcM nevetS[[/span]]에게 하십시오.
+
+++ 이중 라이선스 불가
+
+ØMQ는 iPhone apps를 포함하여 static linking을 제외하고 LGPLV3 라이센스를 따릅니다. 상용 라이센스는 제공하지 않습니다.

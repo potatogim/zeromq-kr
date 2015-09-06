@@ -1,0 +1,102 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Custom routing Router to Dealer (ROUTER to DEALER)
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each thread has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"
+#include <pthread.h>[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}We have two workers, here we copy the code, normally these would
+@@//@@{{@@  @@}}run on different boxes...
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task_a[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_DEALER);
+{{@@    @@}}zmq_setsockopt (worker, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"A"[[/span]], [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zmq_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@routing.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] total [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We receive one part, with the workload//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] finished [[span style="color:#666666"]]=[[/span]] (strcmp (request, [[span style="color:#BA2121"]]"END"[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}free (request);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (finished) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"A received: %d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], total);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}total[[span style="color:#666666"]]++[[/span]];
+{{@@    @@}}}
+{{@@    @@}}zmq_close (worker);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task_b[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_DEALER);
+{{@@    @@}}zmq_setsockopt (worker, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"B"[[/span]], [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zmq_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@routing.ipc"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] total [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We receive one part, with the workload//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (worker);
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] finished [[span style="color:#666666"]]=[[/span]] (strcmp (request, [[span style="color:#BA2121"]]"END"[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@        @@}}free (request);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (finished) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"B received: %d[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], total);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}total[[span style="color:#666666"]]++[[/span]];
+{{@@    @@}}}
+{{@@    @@}}zmq_close (worker);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (client, [[span style="color:#BA2121"]]"ipc:@@//@@routing.ipc"[[/span]]);
+
+{{@@    @@}}pthread_t worker;
+{{@@    @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]worker, [[span style="color:#008000"]]NULL[[/span]], worker_task_a, [[span style="color:#008000"]]NULL[[/span]]);
+{{@@    @@}}pthread_create ([[span style="color:#666666"]]&[[/span]]worker, [[span style="color:#008000"]]NULL[[/span]], worker_task_b, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for threads to connect, since otherwise the messages//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}we send won't be routable.//[[/span]]
+{{@@    @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send 10 tasks scattered to A twice as often as B//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] task_nbr;
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (task_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; task_nbr [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]10[[/span]]; task_nbr[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send two message parts, first the address...//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (randof ([[span style="color:#666666"]]3[[/span]]) [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@            @@}}s_sendmore (client, [[span style="color:#BA2121"]]"A"[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}s_sendmore (client, [[span style="color:#BA2121"]]"B"[[/span]]);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}And then the workload//[[/span]]
+{{@@        @@}}s_send (client, [[span style="color:#BA2121"]]"This is the workload"[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}s_sendmore (client, [[span style="color:#BA2121"]]"A"[[/span]]);
+{{@@    @@}}s_send{{@@     @@}}(client, [[span style="color:#BA2121"]]"END"[[/span]]);
+
+{{@@    @@}}s_sendmore (client, [[span style="color:#BA2121"]]"B"[[/span]]);
+{{@@    @@}}s_send{{@@     @@}}(client, [[span style="color:#BA2121"]]"END"[[/span]]);
+
+{{@@    @@}}zmq_close (client);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,29 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Simple message queuing broker
+@@//@@{{@@  @@}}Same as request-reply broker but using QUEUE device
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket facing clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]frontend [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (frontend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5559"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Socket facing services//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]backend [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_DEALER);
+{{@@    @@}}zmq_bind (backend, [[span style="color:#BA2121"]]"tcp:@@//@@*:5560"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start built-in device//[[/span]]
+{{@@    @@}}zmq_device (ZMQ_QUEUE, frontend, backend);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here...//[[/span]]
+{{@@    @@}}zmq_close (frontend);
+{{@@    @@}}zmq_close (backend);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

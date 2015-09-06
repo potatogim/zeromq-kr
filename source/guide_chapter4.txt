@@ -1,0 +1,1171 @@
+[[# Chapter-Four-Reliable-Request-Reply]][[# header-65]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++ [#Chapter-Four-Reliable-Request-Reply Chapter Four - Reliable Request-Reply]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-64 prev] [#header-66 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+3장에서 우리는 개발된 샘플을 통하여 ØMQ의 request-reply
+패턴의 장점을 보았습니다. 이장에서는 신뢰성에 대한 일반적인 질문을 보고 ØMQ의 request-reply패턴의 핵심인 신뢰메시징(reliability messaging) 패턴들을 만들어 보겠습니다.
+
+이장에서 여러분이 ØMQ아키텍쳐를 디자인하는데 도움을 주는 재사용 모델인 user-space 패턴에 초점을 두고 있습니다. :
+
+* The //Lazy Pirate// pattern: reliable request reply from the client side.
+* The //Simple Pirate// pattern: reliable request-reply using a LRU queue.
+* The //Paranoid Pirate// pattern: reliable request-reply with heartbeating.
+* The //Majordomo// pattern: service-oriented reliable queuing.
+* The //Titanic// pattern: disk-based / disconnected reliable queuing.
+* The //Binary Star// pattern: primary-backup server failover.
+* The //Freelance// pattern: brokerless reliable request-reply.
+
+[[# What-is-Reliability]][[# header-66]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#What-is-Reliability What is "Reliability"?]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-65 prev] [#header-67 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+신뢰성(reliability)이 무엇인지를 이해하기 위해서 우리는 반대 즉 오류(failure)를 살펴봐야 합니다. 만약 어떤 오류경우들을 처리할 수 있다면, 우리는 이런 오류들에 대해서 신뢰할 수 있습니다. 더도 말고, 덜도 말고, 분산 ØMQ 어플리케이션에서 일반적으로 확률이 높은 것부터 가능한 오류의 원인을 살펴 봅시다. :
+
+* 어플리케이션 코드의 최악의 문제점들은 충돌(crash), 종료(exit), 멈춤(freeze), 입력에 대한 무응답, 입력에 대한 지연, 그리고 메모리 낭비입니다.
+
+* 시스템코드 ? ØMQ를 사용하여 작성한 브로커 같은 것 ? 죽을 수 있습니다. 시스템코드는 어플리케이션 코드보다 더 안정적이어야 하지만, 충돌, 디스크 레코딩, 특히, 느린 클라이언트를 위한 보상처리에 따른 메모리 부족경우가 발생 할 때는 그렇지 못합니다.
+
+* 메시지 대기열은 느린 클라이언트에 대해서 많은 처리를 요청하는 전형적인 시스템코드에서 오버플로우가 발생할 수 있습니다. 큐에 오버플로우가 발생했을 때, 메시지는 버려지기 시작합니다.
+
+* 네크워크가 간헐적으로 메시지 손실을 초래하는 일시적인 오류 가능성이 있습니다. 이러한 오류는 네트워크가 강제로 연결이 끊어 졌을 때 자동적으로 재연결하는 ØMQ어플리케이션는 해당되지 않습니다.
+
+* 하드웨어는 시스템에서 실행중인 모든 프로세스를 실패하고 유지할 수 있게 할 수 있습니다.
+
+* 네트워크는 특이한 방법으로 오류처리 할 수 있습니다. 예를 들어 스위치의 일부 포트를 죽일 수 있으며 그러면 네트워크의 일부에 접근 할 수 없게 됩니다.
+
+* 전체 데이터 센터는 낙뢰, 지진, 화재, 일반적인 전력이나 냉각 실패에 의해 문제가 발생할 수 있습니다. 
+
+이 가능한 모든 실패에 대해 소프트웨어 시스템이 완벽하게 신뢰할 수 있도록 만드는 것은 매우 어렵고, 비용이 많이 들며, 본 가이드의 범위를 넘습니다.
+
+처음 5가지 경우가 대기업 이외의 실제 요구 사항의 99.9%입니다. 당신이 마지막 2가지 경우에 소비할 돈이 있는 큰 회사라면, 나에게 연락을 해주시기 바랍니다. 
+
+[[# Designing-Reliability]][[# header-67]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Designing-Reliability Designing Reliability]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-66 prev] [#header-68 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+가장 간단한 상황을 만들어 보면, 신뢰성은 죽는 상황을 최소화 하기 위해 코드가 정지하거나 충돌이 발생 할 때 적당히 처리되도록 유지하는 것 입니다. 그러나 우리가 적당히 처리하도록 유지하려고 하는 것은 메시지보다 더 복잡합니다. 우리는 각 core ØMQ messaging패턴에서 코드가 죽었을 때 어떻게 동작하도록 만드는지를 볼 필요가 있습니다.
+
+이제 하나씩 보겠습니다. : 
+
+* Request-reply  : 만약 요청 처리중 서버가 죽어 응답을 받지 못하기 때문에 클라이언트는 이것을 알 수 있습니다. 그래서 클라이언트는 일을 중지하거나, 기다리거나, 후에 다시 시도하거나, 다른 서버를 찾는 등을 할 수 있습니다. 이렇게 클라이언트가 죽도록 하면 우리는 여러 문제들을 무시 할 수 있습니다.
+
+* Publish-subscribe : 클라이언트가 죽으면(일부 데이터를 받아오는 중), 서버는 그것을 모릅니다. Pubsub은 클라이언트에서 서버로 어떤 정보도 전송하지 않습니다. 그러나 클라이언트는 대역외(out-of-band, 예 request-reply)으로 서버에 접속할 수 있으며,“내가 놓친 모든 것을 재전송 요청할 수 있습니다. 서버가 죽는 경우는 여기에서는 범위 밖입니다. Subscriber는 너무 느리게라도 작동하지 않는 것을 자가 체크 할 수 있으며, 경고를 보낸다는지 죽는등의 처리를 할 수 있습니다.
+
+* Pipeline  : 만약 worker가 작업중 죽으면, ventilator는 알지 못합니다. Pubsub처럼 시간의 연속기어와 같이 Pipeline은 단지 단방향으로 동작합니다. 그러나 아래방향 colloctor는 특정 task가 작동하지 않는 것을 알 수 있습니다.
+
+이장에서 우리는 request-reply에 초점을 둘 것이며, 다음장에서는 신뢰 가능한 pub-sub과 pipeline을 다룰 것입니다. 
+
+기초적인 request-reply패턴(REQ클라이언트 소켓이 REP서버 소켓에 송수신 하는 것)은 실패의 가장 일반적인 유형을 처리해야 하는 경우의 수가 적습니다. 만약 서버가 요청을 처리하는 중 오류가 발생하면 클라이언트는 영원히 멈춰(hang) 있고, 네트워크가 요청이나 응답을 유실하면 클라이언트는 영원히 멈춰 있게 됩니다.
+
+이것은 메시지 로드밸런싱이나 재연결등을 하는 ØMQ의 기능으로 TCP보다 월등합니다. 하지만 실제 작업을 위해서는 아직 충분하지는 않습니다. 기초적인 request-reply패턴을 신뢰할 수 있는 유일한 경우는 네트워크 또는 별도의 서버 프로세스가 아닌 같은 프로세스의 두 스레드 간입니다.
+
+그러나, 약간의 추가 작업을 가지는 이 패턴은 분산 네트워크를 통해 실제 작업을 위한 좋은 기초가 되며, 내가 “Pirate”패턴이라 부르기를 좋아하는 reliable request-reply패턴 집합 입니다.
+
+클라이언트가 서버에 연결할 때 신뢰성 확보를 위한 3가지 접근방식이 있습니다. :
+
+* 여러 클라이언트가 단일서버에 직접 연결하기. Use case : 클라이언트들이 연결해야 하는 하나의 잘 알려진 서버. 처리대상 장애유형 : 서버 충돌과 재시작, 네트워크 연결 끊김. 
+
+* 여러 클라이언트가 여러 서버에 작업을 분산하는 single queue device와 연결하기. Use case : 워크로드 분산 작업자. 처리대상 장애유형 : 작업자 충돌과 재시작, 작업자 바쁜 루핑, 작업자 과부하, 대기열 충돌과 재시작, 네트워크 연결 끊김.
+
+* 여러 클라이언트가 중간 장치 없이 여러서버와 연결하기. Use case : name resolution과 같은 분산 서비스. 처리대상 장애유형 : 서비스 충돌과 재시작, 서비스 바쁜 루핑, 서비스 과부하, 네크워크 연결 끊김.
+
+[[# Client-side-Reliability-Lazy-Pirate-Pattern]][[# header-68]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Client-side-Reliability-Lazy-Pirate-Pattern Client-side Reliability (Lazy Pirate Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-67 prev] [#header-69 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 클라이언트의 일부 변경으로 매우 간단한 reliable request-reply를 구현할 수 있습니다. :
+
+* REQ소켓은 응답이 도착하는 경우에만 그것에서 받을 수 있습니다.
+* 요청을 여러 번 보내면 타임아웃 시간내에 도착된 응답이 없습니다.
+* 여러 요청후 응답이 없는 경우 transaction을 버립니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig56.png]]
+
+send-recv 보다 REQ소켓을 사용할 경우 오류빈도가 높습니다.(기술적으로, REQ소켓은 send-recv ping-pong를 위한 작은 finite-state machine을 구현합니다. 그리고 에러코드는 ‘EFSM’이라고 부릅니다.) 우리가 응답을 얻기 전에 여러 요청을 보내야 하기 때문에, 이 패턴은 REQ를 사용할 때 좀더 번거로운 일입니다. 꽤 좋은 brute-force 솔루션은 오류 후 REQ소켓을 닫고 다시 오픈합니다. :
+
+[[collapsible show="lpclient: Lazy Pirate client in C" hide="lpclient: Lazy Pirate client in C"]]
+[[include c:lpclient]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:lpclient C++] | [*http://zguide.zeromq.org/hx:lpclient Haxe] | [*http://zguide.zeromq.org/java:lpclient Java] | [*http://zguide.zeromq.org/lua:lpclient Lua] | [*http://zguide.zeromq.org/php:lpclient PHP] | [*http://zguide.zeromq.org/py:lpclient Python] | [*http://zguide.zeromq.org/rb:lpclient Ruby] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Scala][[/size]]
+
+일치하는 서버와 함께 실행 하세요. :
+
+[[collapsible show="lpserver: Lazy Pirate server in C" hide="lpserver: Lazy Pirate server in C"]]
+[[include c:lpserver]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:lpserver C++] | [*http://zguide.zeromq.org/hx:lpserver Haxe] | [*http://zguide.zeromq.org/java:lpserver Java] | [*http://zguide.zeromq.org/lua:lpserver Lua] | [*http://zguide.zeromq.org/php:lpserver PHP] | [*http://zguide.zeromq.org/py:lpserver Python] | [*http://zguide.zeromq.org/rb:lpserver Ruby] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Scala][[/size]]
+
+이 테스트케이스를 실행하려면 두 콘솔 창에 클라이언트와 서버를 시작합니다. 서버는 무작위로 몇 가지 메시지를 보낼 것입니다. 당신은 클라이언트의 응답을 확인할 수 있습니다. 서버의 전형적인 출력은 다음과 같습니다. :
+
+[[code]]
+I: normal request (1)
+I: normal request (2)
+I: normal request (3)
+I: simulating CPU overload
+I: normal request (4)
+I: simulating a crash
+[[/code]]
+
+여기는 클라이언트의 응답 부분입니다. :
+
+[[code]]
+I: connecting to server...
+I: server replied OK (1)
+I: server replied OK (2)
+I: server replied OK (3)
+W: no response from server, retrying...
+I: connecting to server...
+W: no response from server, retrying...
+I: connecting to server...
+E: server seems to be offline, abandoning
+[[/code]]
+
+클라이언트가 각 메시지를 순서대로 보내고 순서대로 정확하게 응답이 오는지 확인 해봅시다. : 요청이나 응답의 유실이 없는지, 응답이 한번이상 돌아오지 않는지, 순서가 맞지 않은지. 당신은 이 메커니즘이 실제로 작동하는지 확신이 들 때까지 여러 번 테스트 해 봅시다. 실제로는 순서번호(sequence numbers)가 필요 없지만, 디자인을 신뢰하는데 도움이 됩니다.
+
+클라이언트는 REQ소켓을 사용하고, REQ소켓이 엄격한 보내기/받기 주기를 고수하기 때문에 brute-force는 닫기(close)/재열기(reopen)를 합니다. 당신은 대신에 DEALER를 사용하려고 할 수 있지만, 이것은 좋은 결정이 아닙니다. 
+
+클라이언트에서 오류를 처리하는 것은 단일 서버에 연결하는 클라이언트가 여러 개 일 때 수행합니다. 이것은 서버 충돌을 처리할 수 있지만, 동일서버를 재시작하는 정도 입니다. 만약 영구적인 오류 ? 서버 파워가 나간 경우 ? 는 가능하지 않습니다. 서버의 어플리케이션 코드는 보통 어떤 구조에서는 가장 큰 실패의 원인이 되기 때문에 단일서버에 의존하는 것은 좋은 생각이 아닙니다.
+
+그래서, 장단점을 보면 아래와 같습니다. :
+
+* 장점 : 이해와 구현이 쉽습니다. 
+* 장점 : 기존 클라이언트 및 서버 응용 프로그램 코드를 쉽게 사용할 수 있습니다.
+* 장점 : ØMQ는 자동적으로 동작할 때 까지 실제적인 재연결을 재시도합니다. 
+* 단점 : 백업/대체 서버로 장애 조치 안 됩니다.
+
+[[# Basic-Reliable-Queuing-Simple-Pirate-Pattern]][[# header-69]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Basic-Reliable-Queuing-Simple-Pirate-Pattern Basic Reliable Queuing (Simple Pirate Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-68 prev] [#header-70 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+두번째 접근은 ‘worker’를 더 정확하게 호출할 수 있으며, 투명하게 여러 서버와 연결할 수 있도록하는 queue device를 확장한 request-reply패턴을 보겠습니다. 우리는 최소한의 작업 모델을 시작하는 단계에서 이것을 개발할 것입니다.
+
+모든 request-reply패턴에서 작업자(worker)는 stateless 이거나, 일부 공유 상태를 가집니다. Queue device를 가진다는 것은, 작업자는 클라이언트가 무엇을 하는지 알 필요 없이 오고 가고 할 수 있다는 것을 의미 합니다. 이것은 단지 한개의 약점과 관리의 문제가 될 수 있는 자체 중앙 큐, 그리고 실패의 단일 지점을 가지는 좋고 간단한 구조입니다.
+
+queue device의 기초는 3장에서 다룬 LRU(least-recently-used) routing queue 입니다. 우리는 죽었거나 차단된 작업자를 처리하기 위해 최소한 무슨 작업이 필요할까요? 조금 힌트를 주면, 우리는 이미 클라이언트의 재시도 매커니즘을 가지고 있습니다. 그래서 표준 LRU queue를 사용하면 아주 잘 작동합니다. 이것은 중간에 장치를 끼워넣은 request-reply과 같이 peer-to-peer 패턴을 확장 할 수 있는 ØMQ의 사상에 맞는 것입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig57.png]]
+
+우리는 특별한 클라이언트가 필요하지 않으며, 아직 request-reply패턴을 사용합니다. 이것은 그 이상도 이하도 아닌 정확한 LRU queue입니다. :
+
+[[collapsible show="spqueue: Simple Pirate queue in C" hide="spqueue: Simple Pirate queue in C"]]
+[[include c:spqueue]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:spqueue C++] | [*http://zguide.zeromq.org/hx:spqueue Haxe] | [*http://zguide.zeromq.org/java:spqueue Java] | [*http://zguide.zeromq.org/lua:spqueue Lua] | [*http://zguide.zeromq.org/php:spqueue PHP] | [*http://zguide.zeromq.org/py:spqueue Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이것은 request-reply서버에 LRU패턴(REQ ‘ready’신호를 사용함)을 적용한 worker 입니다. :
+
+[[collapsible show="spworker: Simple Pirate worker in C" hide="spworker: Simple Pirate worker in C"]]
+[[include c:spworker]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:spworker C++] | [*http://zguide.zeromq.org/hx:spworker Haxe] | [*http://zguide.zeromq.org/java:spworker Java] | [*http://zguide.zeromq.org/lua:spworker Lua] | [*http://zguide.zeromq.org/php:spworker PHP] | [*http://zguide.zeromq.org/py:spworker Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이것을 테스트 하기 위해서 소수의 작업자, 클라이언트, 그리고 큐 순서로 시작합니다. 당신은 작업자들이 결국 모두 죽고 레코딩을 하며 클라이언트는 재시도 한 후 죽는 것을 볼 수 있습니다. 대기열은 절대 멈추지 않으며, 당신은 작업자와 클라이언트를 지겹도록 다시 시작할 수 있습니다. 이 모델은 클라이언트들과 작업자들 간에 작동합니다.
+
+[[# Robust-Reliable-Queuing-Paranoid-Pirate-Pattern]][[# header-70]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Robust-Reliable-Queuing-Paranoid-Pirate-Pattern Robust Reliable Queuing (Paranoid Pirate Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-69 prev] [#header-71 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Simple Pirate Queue패턴은 기존 두개 패턴의 조합으로 잘 동작하지만 몇가지 약점을 가지고 있습니다. :
+
+* 이것은 큐의 충돌과 재시작에 대응할 방법이 없습니다. 클라이언트는 복구되지만, 작업자는 그렇지 않습니다. ØMQ가 자동으로 작업자의 소켓을 재연결하는 동안 새롭게 시작된 큐가 관여 할 때까지, 작업자는 ‘READY’신호를 가지지 못하고 그래서 존재하지 않게 되는 것입니다. 이것을 해결하기 위해서 우리는 큐가 작업자에게 heartbeating해야 합니다. 그렇게 해야 큐가 사라졌을 때 작업자가 이것을 알 수 있습니다.
+
+* queue는 worker의 실패를 알지 못합니다. 그래서 만약 worker가 idle하다가 죽으면 queue는 그것에 처음 요청을 보낸 작업자 큐에서 해당 worker를 제거 할 수 있습니다. Client는 그냥 기다리고 재시도 합니다. 이것은 심각한 오류는 아니지만, 좋지만도 않습니다. 이일을 위해서 우리는 worker에서 queue로 heartbeating을 합니다. 그래야 queue는 어떤 단계에서 worker를 잃었는지 알 수 있습니다. 
+
+우리는 적절하게 Paranoid Pirate패턴에서 이러한 문제를 해결합니다. 
+
+우리는 이전에 worker를 위한 REQ소켓을 사용했습니다. Worker를 위해서 우리는 DEALER소켓으로 전환합니다. 이것은 REQ가 보내고 받는 고정된 단계를 거치는 것보다 언제든지 메시지를 보내고 받을 수 있다는 이점이 있습니다. DEALER의 단점은 우리가 직접 envelope관리를 해야 한다는 것입니다. 만약 이것이 의미하는 것을 모른다면 다시 3장을 보시기 바랍니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig58.png]]
+
+우리는 여전히 Lazy Pirate 클라이언트를 사용하고 있습니다. 여기 Paranoid Pirate큐장치(queue device)가 있습니다. :
+
+[[collapsible show="ppqueue: Paranoid Pirate queue in C" hide="ppqueue: Paranoid Pirate queue in C"]]
+[[include c:ppqueue]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:ppqueue C++] | [*http://zguide.zeromq.org/hx:ppqueue Haxe] | [*http://zguide.zeromq.org/java:ppqueue Java] | [*http://zguide.zeromq.org/lua:ppqueue Lua] | [*http://zguide.zeromq.org/php:ppqueue PHP] | [*http://zguide.zeromq.org/py:ppqueue Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+Queue는 workers의 heartbeating으로 LRU패턴 기능을 추가합니다. 작동은 간단하지만, 발명하기에는 꽤 어렵습니다. 잠시후에 heartbeating에 대해서 자세히 설명하겠습니다.
+
+여기 Paranoid Pirate worker가 있습니다. :
+
+[[collapsible show="ppworker: Paranoid Pirate worker in C" hide="ppworker: Paranoid Pirate worker in C"]]
+[[include c:ppworker]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:ppworker C++] | [*http://zguide.zeromq.org/hx:ppworker Haxe] | [*http://zguide.zeromq.org/java:ppworker Java] | [*http://zguide.zeromq.org/lua:ppworker Lua] | [*http://zguide.zeromq.org/php:ppworker PHP] | [*http://zguide.zeromq.org/py:ppworker Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이 예제에 대한 몇 가지 설명 입니다. :
+
+* 코드는 이전 실패 시뮬레이션을 포함하고 있습니다. 이것은 디버그 하기에 매우 어렵게 하고, 재활용하기에도 어렵습니다. 당신이 이것을 디버그 하기 원한다면 실패 시뮬레이션을 해제 하기 바랍니다.
+
+* Paranoid Pirate queue를 위한 heartbeating를 바로 얻기에는 꽤 까다롭습니다. 이것에 대한 논의는 아래에서 다룰 것입니다.
+
+* worker는 Lazy Pirate client를 위해 디자인된 것과 유사한 재연결 방법을 사용합니다. 두가지 주요 차이점 : (a)무수하게 back-off하며, (b) 결코 버리지 않음.
+
+Cient, queue, workers를 테스트 하기 위해서 아래 스크립트를 사용하세요. :
+
+[[code]]
+ppqueue &
+for i in 1 2 3 4; do
+    ppworker &
+    sleep 1
+done
+lpclient &
+[[/code]]
+
+당신은 workers가 하나씩 죽고, 결국 client가 죽는 것을 볼 것입니다. 당신이 queue를 정지하고 재기동 하면, client와 workers는 다시 연결하고 일을 수행합니다. Queue와 worker에게 무슨 짓을 하든, client는 응답을 받을 것입니다.
+
+[[# Heartbeating]][[# header-71]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Heartbeating Heartbeating]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-70 prev] [#header-72 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Paranoid Pirate 예제를 작성할 때, queue-to-worker heartbeating이 올바르게 작동하기 위해 약 5시간이 걸렸습니다. Request-reply chain의 나머지는 약 10분 걸렸습니다. Heartbeating은 더 많은 문제를 일으키는 신뢰성 레이어중 하나입니다. 이것은 ‘잘못된 오류(false failures)’가 많이 발생합니다. 즉 peers는 heartbeats가 적당하게 전송되지 못할 때 연결을 끊을지 결정합니다.
+
+heartbeating을 이해하고 구현할 때 고려해야 할 몇 가지 주의점 입니다. :
+
+* heartbeating은 request-reply가 아닙니다. 양쪽 방향으로 비동기 흐름을 가집니다. Peer는 다른 것이 죽은 것을 결정하고 연결을 중지 할 수 있습니다. 
+
+* Peer중 하나가 durable socket을 사용한다면 이것은 재연결할 때 queue에서 heartbeats를 가져올 수 있다는 것을 의미 합니다. 이러한 이유로, workers는 durable sockets을 재사용해서는 안 됩니다. 예제 코드는 디버그 목적으로 durable socket을 사용하지만, 이것들은 기존 소켓을 재사용 못 하도록 랜덤(randomized)하게 합니다. 
+
+* 처음, heartbeating 작업을 하며, 단지 메시지 흐름의 마지막에 추가 합니다. 당신은 임의의 순서로 peers를 구동하고, 정지하고, 재시작하고, 정지 시뮬레이션을 통하여 heartbeating 작동을 증명할 수 있어야 합니다. 
+
+* 메인 루프가  [http://api.zeromq.org/2-1:zmq_poll zmq_poll(3)]를 기반으로하는 경우, heartbeats를 trigger하기 위해서 보조 타이머를 사용합니다. 너무 많은 heartbeats를 보내거나(overloading the network), 너무 적게(causing peers to disconnect) 보낼 수 있기 때문에 poll루프를 사용하면 안 됩니다. zhelpers패키지는 현재 시스템 클럭을 밀리초단위로 반환하는 s_clock()메소드를 제공합니다. 이것은 C에서 heartbeats를 보낼 때 계산하기 위해 사용하기 쉽습니다. :
+
+[[include c:listing_26]]
+
+* 주 poll루프는 시간초과로써 heartbeats 간격을 사용해야 합니다. 물론, 무한대를 사용하지 마십시오. 그렇다고 너무 작으면 불필요한 루프를 돌게 됩니다.
+
+* 작업에 대한 추적(trace)는 간단하게 사용하세요. 예:콘솔출력. 당신을 돕기 위한 몇가지 팁은 peers사이에 메시지 흐름(제공하는 zmsg로 덤프방법, GAP을 줄이기 위해 숫자를 증가시키면서 메시지를 출력)을 추적하는 것입니다.
+
+* 실제 어플리케이션에서, heartbeating는 peer와 통신하기 위해 구성하고 조정을 해야 합니다. 어떤 peers는 10msec보다 낮은 heartbeating을 원할 것이고, 다른 peers는 길게 30초 보다 높은 heartbeating를 원할 것입니다.
+* 만약 다른 peers를 위해 다른 heartbeat간격을 가진다면, 당신의 poll타임아웃은 이것들보다 더 낮아야 합니다.
+
+* 당신은 heartbeats를 위한 별도의 소켓 대화상자를 열려고 할 수 있습니다. 이것은 당신이 다른 대화상자(예, 비동기 heartbeating에서 동기 request-reply)로 분리할 수 있기 때문에 피상적으로는 좋지만, 여러면에서 좋은 아이디어는 아닙니다. 첫째, 만약 당신이 데이터를 보낼려면 heartbeats를 보낼 필요가 없습니다. 둘째, 네트워크의 예상밖의 변화가 발생할 때 소켓은 먹통이 됩니다. 당신의 주 데이터 소켓이 조용할 때 바쁘지 않아서라기 보다는 죽었는지 알아야 하므로, 당신은 그 소켓에 대하여 heartbeats가 필요합니다. 마지막으로 두소켓은 한 개 보다 더 복잡합니다.
+
+[[# Contracts-and-Protocols]][[# header-72]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Contracts-and-Protocols Contracts and Protocols]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-71 prev] [#header-73 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+유심히 보면, Paranoid Pirate는 heartbeats때문에 Simple Pirate와 호환되지 않는다는 것을 알게 될 것입니다. 
+
+사실, 여기서는 프로토콜에 대해서 다룰 것입니다. 이것은 스펙없이 테스트하기에는 재미 있지만, 실제 어플리케이션을 위해서는 중요한 기초는 아닙니다. 다른 언어로 worker를 만들면 어떻게 되겠습니까? 어떻게 작동하는지 보기 위해서 코드를 읽어야 합니까? 우리가 어떤 이유로 프로토콜을 변경하려는 경우 어떻게 해야 합니까? 포로토콜은 간단할 수 있지만, 분명히 그렇지 않습니다, 그리고 그것이 성공한다고 해도 복잡하게 될 것입니다.
+
+계약을 하지 않으면 일회성 어플리케이션을 만들게 될 수 있습니다.. 그래서 이 프로토콜을 위한 계약을 해야 합니다. 어떻게 이것을 할 수 있을까요?
+
+* [http://rfc.zeromq.org rfc.zeromq.org]라는 wiki사이트가 있습니다. 우리는 특히 공공 ØMQ 계약을 위해 만들었습니다. 
+* 새로운 규격을 만들기 위해 등록하고 지침을 따르세요. 기술적인 내용은 모든 사람들을 위한 것은 아니지만, 간단하고 쉽게 해주세요.
+
+새로운 [http://rfc.zeromq.org/spec:6 Pirate Pattern Protocol] 초안을 작성했습니다. 이것은 큰 스펙은 아니지만 충분히 상세하게 되어 있습니다.(당신의 queues는 PPP 호환되지 않습니다. 이것을 고쳐주세요)
+
+실제 프로토콜로 PPP를 설정하면 더 많은 작업이 소요됩니다. :
+
+* 안정하게 새로운버전의 PPP를 만들 수 있도록 READY명령에 프로토콜 버전 번호가 있어야 합니다.
+* 지금 당장, READY와 HEARTBEAT는 요청과 응답에서 완전히 분리되지 않습니다. 이것을 분명하게 하기 위해, 우리는 "message type"을 포함하는 메시지 구조를 원하는 것입니다.
+
+[[# Service-Oriented-Reliable-Queuing-Majordomo-Pattern]][[# header-73]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Service-Oriented-Reliable-Queuing-Majordomo-Pattern Service-Oriented Reliable Queuing (Majordomo Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-72 prev] [#header-74 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+보통 변호사와 위원회가 관여하지 않으면 오히려 일이 빨리 진행되는 좋은 점이 있습니다. 몇 문장전에 우리는 전체를 고칠 좋은 프로토콜에 대한 아이디어 있었습니다. 바로 이것입니다. :
+
+* http://rfc.zeromq.org/spec:7
+
+이 한페이지 스펙은 PPP이며 이것을 좀더 충실하게 변경합니다. 이것은 복잡한 아키텍쳐를 설계하는 방법입니다. : 계약서를 쓰고 그 다음 그것을 구현하기 위한 소프트웨어를 만드세요.
+
+Majordomo Protocal(MDP)는 위의 두 요점으로부터 향상된 방법으로 PPP를 확장하고 향상시킵니다.  이것은 클라이언트가 보내는 요청에 “service name”을 추가하고 특정서비스에 등록하기 위해 worker에 요청합니다. MDP에 대해 좋은 점은 그것이 작동가능한 코드, 간단한 프로토콜, 개선의 정확한 집합에서 온 것입니다. 이것은 초안을 작성하기에 쉽게 합니다.
+
+Service name를 추가하는 것은 작은 일이지만, Paranoid Pirate queue을 service-oriented broker로 바꾸는 것은 중요한 변화입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig59.png]]
+
+Majordomo를 구현하기 위해서 우리는 clients와 workers를 위한 프레임워크를 작성해야 합니다. 이것을 모든 개발자가 읽고, 만들도록 요청하는 것은 시간낭비 입니다.
+
+그래서, 첫 번째 계약(MDP자체)은 분산 아키텍쳐의 조각에 대해서 서로 논의하는 방법을 정의합니다. 두번째 계약은 사용자 어프리케이션이 설계하는 기술 프레임워크와 논의하는 방법을 정의합니다.
+
+Majordomo는 Client측과 worker측, 두 측면이 있습니다. 입니다. 우리가 client와 worker어플리케이션을 작성하려고 할때, 두가지 API가 필요합니다. 이것은 간단한 object-oriented 접근법을 사용한 client API에 대한 것입니다. 우리는  [http://zfl.zeromq.org/page:read-the-manual ZFL library] 스타일을 사용하여 C로 작성합니다. :
+
+[[include c:listing_27]]
+
+우리는 브로커에 대한 한 세션을 열고, 요청 메시지를 보내고, 응답 메시지를 받습니다, 그리고 마지막에 연결을 닫습니다. 여기 worker API가 있습니다. :
+
+[[include c:listing_28]]
+
+이것은 좀 대칭적이지만, worker대화상자와 약간 다릅니다. 처음에 worker는 recv()를 하고, null응답을 보냅니다, 이후 이것은 현재의 응답을 보내고, 새 요청을 얻을 수 있습니다.
+
+이것은 우리가 이미 개발한 Paranoid Pirate 코드를 기반으로 하기 때문에, client와 worker API는 구축이 상당히 간단했습니다. 여기 client API는 다음과 같습니다. :
+
+[[collapsible show="mdcliapi: Majordomo client API in C" hide="mdcliapi: Majordomo client API in C"]]
+[[include c:mdcliapi]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:mdcliapi Haxe] | [*http://zguide.zeromq.org/java:mdcliapi Java] | [*http://zguide.zeromq.org/lua:mdcliapi Lua] | [*http://zguide.zeromq.org/php:mdcliapi PHP] | [*http://zguide.zeromq.org/py:mdcliapi Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+100K request-reply사이클을 수행하는 예제 테스트 프로그램 :
+
+[[collapsible show="mdclient: Majordomo client application in C" hide="mdclient: Majordomo client application in C"]]
+[[include c:mdclient]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:mdclient C++] | [*http://zguide.zeromq.org/hx:mdclient Haxe] | [*http://zguide.zeromq.org/java:mdclient Java] | [*http://zguide.zeromq.org/lua:mdclient Lua] | [*http://zguide.zeromq.org/php:mdclient PHP] | [*http://zguide.zeromq.org/py:mdclient Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+여기는 worker  API입니다. :
+
+[[collapsible show="mdwrkapi: Majordomo worker API in C" hide="mdwrkapi: Majordomo worker API in C"]]
+[[include c:mdwrkapi]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:mdwrkapi Haxe] | [*http://zguide.zeromq.org/java:mdwrkapi Java] | [*http://zguide.zeromq.org/lua:mdwrkapi Lua] | [*http://zguide.zeromq.org/php:mdwrkapi PHP] | [*http://zguide.zeromq.org/py:mdwrkapi Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+'echo' 서비스를 구현하는 예제 테스트 프로그램 :
+
+[[collapsible show="mdworker: Majordomo worker application in C" hide="mdworker: Majordomo worker application in C"]]
+[[include c:mdworker]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:mdworker C++] | [*http://zguide.zeromq.org/hx:mdworker Haxe] | [*http://zguide.zeromq.org/java:mdworker Java] | [*http://zguide.zeromq.org/lua:mdworker Lua] | [*http://zguide.zeromq.org/php:mdworker PHP] | [*http://zguide.zeromq.org/py:mdworker Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이 코드에 대한 주의사항 :
+
+* API는 단일 스레드 입니다. 예를들어 이것은 worker가 백그라운드로 heartbeats를 보낼수 없습니다. 다행히, 이것이 정확하게 원하는 것입니다. : 만약 worker어플리케이션이 아무일도 못하게 되면 heartbeats는 정지하고 broker는 worker에게 요청 전송을 중지할 것입니다.
+
+* worker API는 급격한 back-off를 하지 않습니다, 이것에 대해 추가로 복잡하게 할 가치가 없습니다.
+
+* API는 모든 오류보고를 하지 않습니다. 뭔가 예상대로 되지 않을 경우, assertion(or language에 따른 예외)이 발생합니다. 이것은 참조구현에 이상적이며, 그래서 어떠한 프로토콜 오류가 즉시 표시됩니다. 실제 어플리케이션에서 API는 오류 메시지에 대해서 강력하게 대응해야 합니다.
+
+ØMQ는 peer가 사라지고 다시 나타나면 자동적으로 소켓을 재연결하는데, 그 때 worker API가 수동으로 소켓을 닫고 새로운 소켓을 오픈하는지 궁금 할 것입니다. Paranoid Pirate worke를 이해하기 위해서 간단한 Pirate worker를 되돌아 봅시다. ØMQ가 자동으로 workers를 재열결 하는 동안, 만약 broker가 죽었다 다시 살아나면, 이것은 broker에 workers를 다시 등록하기에 충분하지 않습니다. 제가 아는 적어도 2가지 해답이 있습니다. 가장 단순한것은, woker가 heartbeats를 이용하여 연결을 모니터링하다가 broker가 죽으면 소켓을 닫고 새로운 소켓으로 새로 시작합니다. 이 대안은 알수없는 worker를 확인하는 broker를 위한 것입니다.-worker로부터 heartbeats를 얻었을 때 ? 다시 등록하도록 요청합니다. 이것은 프로토콜적인 지원이 필요합니다.
+
+Majordomo broker를 디자인해 봅시다. 핵심구조는 서비스마다 한 개를 가지는 queue집합입니다. 우리는 worker가 나타날 때 이들 queue를 만들 것입니다.(우리는 worker가 사라질 때 이것들을 삭제합니다. 이것은 복잡합니다.) 추가로 우리는 서비스마다 worker의 queue를 유지합니다.
+
+C예제를 쓰고 읽는데 더 쉽게 만들기 위해 [http://zfl.zeromq.org ZFL project]에서 hash와 list container 클래스를 사용했으며, zmsg를 사용하는데 [https://github.com/imatix/zguide/blob/master/examples/C/zlist.h zlist] 와 [https://github.com/imatix/zguide/blob/master/examples/C/zhash.h zhash] 로 이름을 변경했습니다. 물론 언어에 따라 내장된 containers를 사용할 수 있습니다. 
+
+그리고 이것이 broker입니다. :
+
+[[collapsible show="mdbroker: Majordomo broker in C" hide="mdbroker: Majordomo broker in C"]]
+[[include c:mdbroker]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:mdbroker C++] | [*http://zguide.zeromq.org/hx:mdbroker Haxe] | [*http://zguide.zeromq.org/java:mdbroker Java] | [*http://zguide.zeromq.org/lua:mdbroker Lua] | [*http://zguide.zeromq.org/php:mdbroker PHP] | [*http://zguide.zeromq.org/py:mdbroker Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이것은 지금까지 우리가 본 것 중 가장 복잡한 예제입니다. 코드가 거의 500 줄입니다. 이것을 충분하게 잘 작동하게 하기 위해서 이틀이 걸렸습니다. 그러나 이것은 아직 완전한 service-oriented broker에 대한 코드의 작은 일부일 뿐입니다. 
+
+이 코드에대한 주의사항 :
+
+* Majordomo프로토콜은 단일 소켓으로 clients와 workers 모두를 처리할 수 있습니다. 이것은 broker를 전개하고 관리하기에 유용합니다. : 이것은 대부분 devices가 필요로하는 ØMQ endpoint가 두개라기 보다는 1개라는 것입니다.
+
+* broker는 이것이 오류 명령, heartbeats를 전송하거나, 아무일도 않고 있을때 연결이 단절되는 것을 포함하여 제대로 MDP/0.1(내가 아는 한)을 모두 구현합니다.
+
+* 이것은 각각 한소켓 혹은, client과 worker로 된 한쌍을 관리하는 다중 스레드를 실행하는 것으로 확장할 수 있습니다.  
+
+* broker는 기본적으로 서비스 이외에 상태를 가지고 있지 않기 때문에 primary-failover 나 live-live broker 모델 구성은 간단합니다. 이것은 첫번째 선택한 broker가 실행되지 않은 경우 다른 broker를 선택하는 것은 clients와 workers에게 달려 있습니다.
+
+* 예제는 trace할 때 출력의 양을 줄이기 위해 5초 heartbeats를 사용합니다. 현실적인 값은 대부분의 LAN어플리케이션을 위해서는 더 낮아야 합니다. 그러나 모든 시도가 재시작하는 서비스에 대한 충분한 시간을 가져야 하는데, 적어도 10초라고 말합니다.
+
+[[# Asynchronous-Majordomo-Pattern]][[# header-74]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Asynchronous-Majordomo-Pattern Asynchronous Majordomo Pattern]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-73 prev] [#header-75 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+위의 Majordomo를 구현하는 방법은 간단합니다. Client는 단지 Simple Pirate입니다. 테스트 상자에서 client, broker, worker를 fire up 시킬때, 이것은 약 14초동안 100,000요청을 처리할 수 있습니다. 이것은 부분적으로 메시지 프레임을 복사하는 코드 때문입니다. 하지만 진짜 문제는 우리가 round-tripping하는 것입니다. ØMQ는 [http://en.wikipedia.org/wiki/Nagles_algorithm Nagle's algorithm]을 사용하지 않을 수 있지만, round-tripping은 여전히 느립니다. 
+
+이론적으로 크지만, 실전에서는 좋습니다. 간단한 테스트 프로그램으로 round-tripping의 비용을 측정해 봅시다. 여러번 메시지를 보냅니다, 처음은 각 메시지마다 응답을 기다리고, 두번째는 배치로 요청을 하고 모든 응답을 받습니다. 이 두가지는 같은 일을 하지만, 매우 다른 결과를 줍니다. 우리는 client, broker, worker를 mockup합니다. :
+
+[[collapsible show="tripping: Round-trip demonstrator in C" hide="tripping: Round-trip demonstrator in C"]]
+[[include c:tripping]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:tripping C++] | [*http://zguide.zeromq.org/hx:tripping Haxe] | [*http://zguide.zeromq.org/java:tripping Java] | [*http://zguide.zeromq.org/lua:tripping Lua] | [*http://zguide.zeromq.org/php:tripping PHP] | [*http://zguide.zeromq.org/py:tripping Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+실행 결과 입니다. :
+
+[[code]]
+Setting up test...
+Synchronous round-trip test...
+ 9057 calls/second
+Asynchronous round-trip test...
+ 173010 calls/second
+[[/code]]
+
+client스레드가 시작하기 전에 잠시 멈추는 것에 주의하세요. 이것은 router소켓의 기능중 하나를 해결할 것입니다.:당신이 아직 연결되지 않은 peer의 주소와 메시지를 보낼 경우 메시지가 삭제됩니다.  이 예제에서 worker스레드가 연결하는데 너무 느리다면 sleep없이 LRU메케니즘을 사용하지 마세요, 이것은 메시지를 잃게되고, 테스트를 망치게 됩니다.
+
+보다시피, 가장 간단한 경우에서 round-tripping은 "shove it down the pipe as fast as it'll go" 비동기 접근보다 20배가 더 느립니다. 이것을 Majordomo에 적용할 수 있는지 봅시다.
+
+첫째, send/recv 메소드로 구분된 client API를 변경해 봅시다. :
+
+[[include c:listing_29]]
+
+이것은 말 그대로 동기 client API를 비동기로 바꾸는 작업입니다. :
+
+[[collapsible show="mdcliapi2: Majordomo asynchronous client API in C" hide="mdcliapi2: Majordomo asynchronous client API in C"]]
+[[include c:mdcliapi2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:mdcliapi2 Haxe] | [*http://zguide.zeromq.org/java:mdcliapi2 Java] | [*http://zguide.zeromq.org/lua:mdcliapi2 Lua] | [*http://zguide.zeromq.org/php:mdcliapi2 PHP] | [*http://zguide.zeromq.org/py:mdcliapi2 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이것은 대응하는 client 테스트 프로그램 입니다. :
+
+[[collapsible show="mdclient2: Majordomo client application in C" hide="mdclient2: Majordomo client application in C"]]
+[[include c:mdclient2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/cpp:mdclient2 C++] | [*http://zguide.zeromq.org/hx:mdclient2 Haxe] | [*http://zguide.zeromq.org/java:mdclient2 Java] | [*http://zguide.zeromq.org/lua:mdclient2 Lua] | [*http://zguide.zeromq.org/php:mdclient2 PHP] | [*http://zguide.zeromq.org/py:mdclient2 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+프로토콜을 변경하지 않기 때문에 broker와 worker는 변경하지 않습니다. 성능이 즉시 향상되는 것을 볼 수 있습니다. 이것은 100K request-reply 사이클을 처리하는 동기 client입니다. :
+
+[[code]]
+$ time mdclient
+100000 requests/replies processed
+
+real    0m14.088s
+user    0m1.310s
+sys     0m2.670s
+[[/code]]
+
+그리고 이것은 단일 worker와 비동기 client입니다.  :
+
+[[code]]
+$ time mdclient2
+100000 replies received
+
+real    0m8.730s
+user    0m0.920s
+sys     0m1.550s
+[[/code]]
+
+2배 빠릅니다. 나쁘진 않지만, 10 workers가 fire up 할 때 이것을 어떻게 처리하는지 봅시다. :
+
+[[code]]
+$ time mdclient2
+100000 replies received
+
+real    0m3.863s
+user    0m0.730s
+sys     0m0.470s
+[[/code]]
+
+LRU방식에서 workers는 메시지를 수신하는데 완전한 비동기는 아닙니다. 그러나, 이것은 더 많은 workers를 위해서는 더 확장성이 좋습니다. 여기 테스트에서는 여덟개의 workers이후에는 더 빨라지지 않습니다. Broker는 아직 최적화가 안되어 있습니다. 이것은 zero copy하는 대신에 message frames를 복사하는데 대부분의 시간을 보냅니다. 그러나 우리는 꽤 낮은 노력으로 신뢰할 수 있는 25K request/reply를 가집니다.
+
+그러나 비동기 Majordomo패턴은 모든 것이 좋은 것은 아닙니다. 이것은 근본적인 문제가 있습니다, 즉 broker가 많은 작업없이 충돌을 피할수 없다는 것입니다. 만약 당신이 mdcliapi2코드를 보면 그것이 실패 후 다시 연결을 시도하지 않습니다. 적당한 재연결이 필요합니다.
+
+
+* 모든 요청은 번호가 붙어 있고, 모든 응답은 그 요청에 일치하는 번호를 가집니다.
+* Client API는 track하며, 미 수신 응답등을 위해서 요청을 잡고 있습니다.
+* 장애 경우, client API는 브로커에 대한 모든 요청을 재전송 합니다.
+
+이것은 거래가 중지되는 것은 아니지만, 종종 성능은 복잡성에 관련이 있다는 것을 보여 줍니다. Majordomo을 위해 가치있는 일입니까? 이것은 여러분의 관심사에 따라 달라집니다. name lookup service를 위하여 당신은 매 세션마다 호출을 하느냐, 그것은 아닙니다. 수천의 cients가 web front-end 서비스를 하느냐, 아마도 그럴 것 입니다.
+
+[[# Service-Discovery]][[# header-75]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Service-Discovery Service Discovery]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-74 prev] [#header-76 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 훌륭한service-oriented broker가 있지만, 특정 서비스가 가용한지 그렇지 않은지 알 수 있는 방법이 없습니다. 요청이 실패한 것은 알 수 있지만, 원인은 모릅니다. Echo service가 동작중인지를 broker에 확인하는 것은 가능합니다. 가장 좋은 방법은 어떤 service X가 동작중인지 broker에 확인하는 명령어를 추가하기 위해 MDP/Client 프로토콜을 변경하는 것입니다. MDP/Client는 간단하게 구현되는 강력한 장점이 있습니다. 이것에 서비스 검색을 추가하면 MDP/Worker는 프로토콜만큼 복잡하게 만들어 질 것입니다.
+
+다른 옵션은 배달할 수 없는 요청을 반환하는 메일과 같이 처리하는 것입니다. 이것은 비동기적으로 잘 동작할 수 있지만 이것또한 복잡성은 있습니다. 우리는 반환된 요청과 응답을 구분하고, 적절하게 이것을 처리할 수 있는 방법이 필요합니다.
+
+이것을 변경하는 대신에 이미 MDP로 만든 것을 사용해 봅시다. 서비스 검색(Service discovery)은 서비스 그 자체입니다. 이것은 참으로 “disable service X”, “provide statistics”등 과 같이 여러 관리 서비스중 하나가 될 수 있습니다. 우리가 원하는 건 프로토콜이나 기존 어플리케이션에 영향을 안 주는 일반적이고 확장가능한 솔루션입니다. 
+
+그래서 작은 RFC가 여기 있습니다 ? MMI 또는 Majordomo 관리 인터페이스 ? MDP의 상위 layer: http://rfc.zeromq.org/spec:8  우리는 이미 broker에 이것을 구현 했습니다, 여러분이 아마 이것을 잊고 전체를 읽지 않았어도 말입니다. 이것은 어플리케이션에서 서비스 검색을 사용하는 방법입니다. :
+
+[[collapsible show="mmiecho: Service discovery over Majordomo in C" hide="mmiecho: Service discovery over Majordomo in C"]]
+[[include c:mmiecho]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:mmiecho Haxe] | [*http://zguide.zeromq.org/java:mmiecho Java] | [*http://zguide.zeromq.org/lua:mmiecho Lua] | [*http://zguide.zeromq.org/php:mmiecho PHP] | [*http://zguide.zeromq.org/py:mmiecho Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+Broker는 서비스 이름을 확인하고 worker에 요청을 전달하는 것 보다 오히려 “mmi.”로 시작하는 서비스를 처리합니다. 이것을 돌려보면 woker 실행없이, 당신은 “200” 이나 “400”뒤에 따르는 작은 프로그램 리포트를 볼 수 있습니다. 예제 broker에서 MMI구현은 꽤 완성도가 떨어 집니다. 예를 들어 한 worker가 사라지면, 서비스는 현재 상태를 유지합니다. 사실, broker는 일부 설정시간 이후에 worker없이 서비스를 제거해야 합니다.
+
+[[# Idempotent-Services]][[# header-76]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Idempotent-Services Idempotent Services]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-75 prev] [#header-77 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Idempotency은 알약을 복용하는 무엇이 아닙니다. 이것은 작동을 반복하기에 안전하다는 것입니다. 시간을 체크하는 것은 idempotent입니다. 많은 client-to-server 경우에는 항상 idempotent하지 않습니다. Idempotent 사용 사례는 다음과 같습니다.
+
+* Stateless task distribution, 즉 서버가 요청 상태에 대해 단순한 응답을 하는 stateless workers가 되는 pipeline 입니다. 이러한 경우, 그 같은 요청은 여러 번 실행하는 것이 안전(비효율적일지라도)합니다.
+.
+* 바인딩하거나 연결하기 위해 endpoint에 논리 주소를 변환하는 것은 이름서비스(name service) 입니다. 이러한 경우, 이것은 동일한 조회 요청을 여러 번 만들기에 안전합니다.
+
+그리고 다음은non-idempotent 사용사례 입니다. :
+
+* 로깅 서비스입니다. 한 번 이상 같은 로그 정보를 원하지 않습니다.
+* 어떤 서비스는 다른 노드에 정보를 보내는 downstream노드에 영향이 있습니다. 만약 서비스가 두번이상 동일한 요청을 하게되면 downstream노드는 중복된 정보를 얻을 수 있습니다.
+* 어떤 서비스는 몇몇 non-idempotent방식으로 공유데이터를 수정합니다. 예, 은행계좌를 인출하는 서비스는 확실히 idempotent하지 않습니다.
+
+서버 어플리케이션이 idempotent되지 않을 때, 우리는 그것이 다운되는 것에 대해서 더 신중하게 생각해야 합니다. 이것이 유휴상태나 요청처리 중 죽었다면 괜찮습니다. 대개 출금과 신용처리가 함께 수행되었는지 확인하기 위해 데이터베이스 트랜젝션을 사용할 수 있습니다. 만약 서버가 응답을 보내는 동안 죽으면, 작업이 완료되었는지 알수 없기 때문에 문제가 됩니다.
+
+네트워크가 클라이언트에 되돌려주는 응답처리를 하다 죽으면 같은 문제가 발생합니다. 클라이언트는 서버가 죽었음을 알고 재요청할 것이며, 서버는 같은 작업을 두번할 것입니다. 우리가 원하는 것은 이것이 아닙니다.
+
+우리는 중복요청을 감지하고 거부하기 위한 공정한 표준 솔루션을 사용합니다. 이것은 다음을 의미 합니다. :
+
+* 클라이언트는 고유한 client ID와 독특한 message number로 모든 요청을 채번해야합니다.
+* 서버가 응답을 다시 보내기 전에, 키로써 ‘client ID + message number’를 사용하여 저장해야 합니다. 
+* 서버는 client로부터 요청을 처음 받을 때, client ID + message number로 응답을 했었던 적이 있는지 확인해야합니다. 그래서 요청은 처리하지만 바로 답장을 resends하지 않습니다.
+
+[[# Disconnected-Reliability-Titanic-Pattern]][[# header-77]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Disconnected-Reliability-Titanic-Pattern Disconnected Reliability (Titanic Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-76 prev] [#header-78 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+여러분이 몇 회전 rust1을 추가할수도 있지만, Majordomo는 신뢰가능한 메시지 broker라고 알고 있습니다. 결국, 이것은 모든 엔터프라이즈 메시징 시스템에서 작동합니다. 아키텍쳐 입장에서 rust-based brokers가 불합리한 몇가지가 있습니다.
+
+* 여러분이 본것과 같이 Lazy Pirate client는 놀라울 정도로 잘 동작합니다. 이것은 직접적인 client-to-server에서 distributed queue devices이르기 까지 전 아키텍쳐 범위에 걸쳐 사용할 수 있습니다. 이것은 worker가 stateless와 idempotent 한 것으로 가정하는 경향이 있습니다. 그러나 우리는 rust하기 위해 재정렬없이 제한사항을 해결 할 수 있습니다.
+
+* Rust는 성능저하부터 관리하고 복구해야하는 문제점들을 유발하며, 시스템이 멈추는 panics을 만듭니다. 일반적으로 Pirate 패턴의 장점은 간단함 입니다. 이것은 멈추지 않을 것입니다. 그래도 하드웨어 장애을 고려한다면, broker가 없는 peer-to-peer 패턴으로 할 수 있습니다. 이것은 이장 후반부에 설명할 것입니다.
+
+그러나, 비동기 deconnected 네트워크인 rust-based 신뢰성에는 하나의 use case가 있습니다. 그것은 Pirate의 주요 문제점, 즉 클라이언트가 실시간으로 응답을 기다리는 것을 해결합니다. 만약 client와 worker가 간헐적으로 (이메일과 같이) 연결되어있다면, 우리는 client와 worker 사이에 stateless network를 사용할 수 없습니다. 우리는 중간에 상태를 제공해야 합니다.
+
+그래서, client와 workers가 산발적으로 연결하는 것에 상관없이 결코 잊지 않기 위해서 디스크에 메시지를 저장하는 Titanic 패턴이 이것입니다. 우리는 서비스를 발견했던 것처럼, extend MDP보다 Majordomo의 Titanic를 사용할 것입니다. broker보다는 특화된 worker에서 fire-and-forget 신뢰를 구현할 수 있다는 의미 입니다. 이것은 몇가지 이유에서 우수합니다. :
+
+* 이것은 //훨씬// 쉽습니다.
+* 이것은 다른 언어로된 worker와 broker를 섞어 사용할 수 있습니다. 
+* 독립적으로 fire-and-forget 기술을 발전시켰습니다.
+
+유일한 단점은 브로커와 하드 디스크 사이에 별도의 네트워크 홉이 있다는 것입니다. 
+
+Persistent request-reply 구조를 만드는 방법은 여러가지가 있습니다. 몇시간을 들어 할 수 있는 가장 간단한 방법은 “proxy service”로써 Titanic입니다. 즉, 이것은 전혀 worker에 영향을 주지 않습니다. 만약 즉시 client가 응답을 원한다면 직접 가용한 서비스를 요청하면 됩니다. 만약 client가 잠시 기다리겠다면, Titanic과 통신합니다. 
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig60.png]]
+
+Titanic은 worker와 client 둘다 입니다. Cient와 client사이의 대화는 다음과 같습니다. :
+
+* Client: 나를 위해 이 요청을 수락해 주세요. Titanic: 좋아, 다 됐습니다.
+* Client: 당신이 내게 응답을 주었습니까? Titanic: 예, 여기입니다. 아니면, 아니, 아직은.
+* Client: 좋아, 당신은 지금 요청을 지울수 있나요?. Titanic: 물론, 다 됐습니다.
+
+반면, Titanic 과 broker와 worker 사이의 대화 상자는 다음과 같습니다.
+
+* Titanic: 이봐, broker, 거기 echo 서비스 있습니까? Broker : 음 그래요.
+* Titanic: 안녕하세요, Echo, 날 위해 이것을 처리해 주세요. Echo : 네, 여기 있습니다.
+* Titanic: sweeeeet!
+
+이처럼 작동되면 가능한 장애 시나리오가 있습니다. 만약 worker가 요청을 받아 처리하다 죽으면 Titanic은 재요청 합니다. 만약 응답이 어디선가 분실된 것을 알게 되면 Titanic은 재시도 할 것입니다. Client가 응답을 받지 않았는데 요청이 완료되면, 클라이언트는 다시 요청할 것입니다. 만약 Titanic이 요청이나 응답을 처리하는 동안 죽으면, client는 다시 시도 할 것입니다. 요청이 저장소에 안정하게 commit되기 까지 작업은 손실되지 않습니다.
+
+Handshaking은 pedantic 하지만 pipelined 일 수 있습니다, 즉 client는 많은 작업을 수행하고 나중에 응답을 처리하기 위해 비동기 Majordomo패턴을 사용할 수 있습니다.
+
+답장을 요청하는 client를 위한 여러 방법이 필요합니다. 우리는 같은 서비스를 호출하는 많은 client를 가질 수 있으며, client는 다른 ID로 사라졌다 나타납니다. 그래서 여기 간단하고 합리적인 보안 솔루션이 있습니다. 
+
+? 모든 요청은 요청을 할 때 Titanic이 client에게 반환할 universally unique ID(UUID)를 만듭니다. 
+? 클라이언트가 응답을 요구하면, 그것은 원래 요청에 대한 UUID를 지정해야합니다.
+
+
+이것은 안전하게 해당 요청 UUIDs를 저장하기 위해 클라이언트에서 몇 가지 무거운 짐을두고 있지만, 인증을 위한 어떤 필요성은 없습니다. 어떤 대안이 있는가? 우리는 내구성 소켓, 즉 명시적인 client ID를 사용할 수 있습니다. 그래서 많은 고객이 있을 때 관리 문제가 발생하고, 같은 ID를 사용하는 두 클라이언트로 인한 피할 수 없는 오류가 생깁니다.
+
+우리가 다른 공식적인 규격를 작성하기 전에 client가 Titanic에게 말하는 방법을 생각해 봅시다. 한 가지 방법은 단일 서비스를 사용하고, 세 가지 다른 요청 유형을 전송합니다. 간단하게 보이는 또 다른 방법은, 아래 3개 서비스를 사용하는 것입니다.
+
+? titanic.request - 요청 메시지를 저장하고, 요청에 대한 UUID를 반환합니다.
+? titanic.reply ? 제공된 요청 UUID에 대한 답변을 가져옵니다.
+? titanic.close - 응답이 저장되고 처리되었는지 확인합니다.
+
+우리는 ØMQ를 가지고 멀티스레딩 환경과 같은 다중스레드 worker를 만들 것입니다. 그러나 코드를 보기 전에 Titanic이 ØMQ메시지와 프레임 관점에서 보여지는 것을 구상해 해 봅시다. http://rfc.zeromq.org/spec:9. 이것은 “Titanic Service Protocal” 혹은 TSP입니다.
+
+TSP를 사용하면 MDP를 통해 직접 서비스에 액세스하는 것보다 client어플리케이션 작업이 더 많이 분명해 집니다. 다음은 짧고 강력한 'echo' client 예제입니다.  :
+
+[[collapsible show="ticlient: Titanic client example in C" hide="ticlient: Titanic client example in C"]]
+[[include c:ticlient]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:ticlient Haxe] | [*http://zguide.zeromq.org/php:ticlient PHP] | [*http://zguide.zeromq.org/py:ticlient Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+물론, 이것은 실제적으로 몇가지 프레인워크로 가능합니다. 실제 어플리케이션 개발자들은 가까이에서 메시지를 보지 않습니다, 이것은 프레임 워크와 API를 구축하기 위해 많은 기술을 가진 전문가를위한 도구입니다. 우리가 이것을 관찰하기 위해 무한한 시간이 있다면, TSP API예제를 만들 것이고, client어플리케이션 뒷부분에 코드 몇 줄을 넣을 것입니다. 그러나 MDP에서 본것과 같은 원리로 반복은 필요 없습니다.
+
+여기 Titanic을 구현한 것이 있습니다. 이서버는 제안된 대로 3개 스레드를 사용하여 3개 서비스를 처리합니다. 이것은 대부분 brute-force approach possible(메시지마다 한 파일)를 사용하여 디스크에 full persistence 합니다. 반복적으로 폴더를 읽는 것을 피하기 위해 모든 요청 큐에 저장하는 복잡한 부분이 있습니다. :
+
+[[collapsible show="titanic: Titanic broker example in C" hide="titanic: Titanic broker example in C"]]
+[[include c:titanic]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:titanic Haxe] | [*http://zguide.zeromq.org/php:titanic PHP] | [*http://zguide.zeromq.org/py:titanic Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | Ruby | Scala][[/size]]
+
+이것을 테스트하려면 {{mdworker}}와 {{titanic}}을 시작한 후, {{titanic}}를 시작합니다. 지금 임의로 {{mdworker}}를 시작하면 응답을 받고 종료하는 client를 볼 수 있습니다.
+
+이 코드에 대한 몇 가지 참고사항 입니다. :
+
+* 우리는 동작중인 서비스에 요청을 보내기 위해 MMI를 사용합니다. 이것은 broker에있는 MMI 구현으로 작동합니다.
+* 우리는 주요 dispatcher를 통해 titanic.request 서비스에서 새로운 요청 데이터를 전송하는 inproc 연결을 사용합니다. 이것은 디스크 디렉토리 스캔, 모든 요청 파일을 로드, 날짜/시간 기준으로 결과를 정렬하는 데에서 dispatcher를 절약할 수 있습니다.
+
+이 예제에 대해 중요한 것은 성능이 아니라, 얼마나 잘 구현됐냐는 것입니다. 이것을 시도하려면, mdbroker 및 타이타닉 프로그램을 시작합니다. 다음 ticlient를 시작한 다음 mdworker의 에코 서비스를 시작합니다. 당신은 활동의 자세한 추적을 할 수있는 '- V'옵션을 사용하여 이러한 네 개 모두를 실행할 수 있습니다. 당신은 client를 제외하고 중지 및 다시 시작해도 아무것도 잃지 않을 것입니다.
+
+실제 경우에 Titanic을 사용하기 원하는 경우, 가장 처음 질문은 “어떻게 빨리 만들 것인가?” 입니다. 무엇을 해야 하는지 구현예를 설명합니다.
+
+* 여러 파일보다는 모든 데이터를 위해 하나의 디스크 파일을 사용합니다. 운영체제는 대개 많은 작은 파일보다는 큰 몇 개 파일을 핸들링하는 것이 더 효율적입니다. 
+
+* 원형 버퍼로 디스크파일을 사용합니다. 단일 스레드로 사용하는 것이 가장 빠르게 작업할 수 있습니다.
+
+* 메모리에 인덱스를 유지하고 디스크 버퍼에서 시작 시간에 인덱스를 다시 작성하십시오. 이것은 디스크에 있는 인덱스가 완전히 안전하게 유지하는 데 필요한 추가 디스크 작동을 줄여 줍니다. 당신이 모든 시스템 오류의 경우에 마지막 M 메시지를 잃을 준비가되어있다면, 모든 메시지 후에 fsync, 혹은 모든 N의 milliseconds를 원하는 것입니다.
+
+* 하드디스크를 사용하는것 보다는 드라이브를 사용하세요.
+
+* 전체 파일을 미리 할당하거나, 필요에 따라 원형 버퍼가 커지고, 축소 할수 있도록 큰 덩어리에 할당하세요. 이것은 단편화를 방지하고 대부분 읽고 쓰기가 인접하도록 보장합니다. 
+
+그외, 특별한 database 이거나, 성능을 걱정하지 않는 다면 몰라도, 심지어 빠르게 key/value를 저장한다고 해도 database에 메시지를 저장하지 않기를 추천합니다.
+
+만약 당신이 더욱 신뢰할 수 있는 Titanic을 만들기를 원한다면, 물리적으로 먼 곳에 두번째 서버를 두고 요청을 복제하는 것으로써 이것을 할 수 있습니다
+
+만약 당신이 더 빠르고 덜 신뢰할 수 있는 Titanic을 만들기를 원한다면, 당신은 메모리에 요청/응답을 저장할 수 있습니다. 이것은 비접속 네트워크의 기능을 제공할 것이지만, Titanic서버 자체는 crash에 빈약합니다.
+
+[[# High-availability-Pair-Binary-Star-Pattern]][[# header-78]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#High-availability-Pair-Binary-Star-Pattern High-availability Pair (Binary Star Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-77 prev] [#header-79 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+[[# Overview]][[# header-79]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Overview Overview]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-78 prev] [#header-80 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Binary Star패턴은 primary-backup high-availability pair에 두 서버를 놓습니다. 주어진 시간에, 이 중 하나는 클라이언트 응용 프로그램 (이것은 "master"입니다)에서 접속을 허용하고, 하나는 (그것이 "slave"입니다) 허용하지 않습니다. 각 서버는 다른서버를 모니터링합니다. 마스터가 네트워크에서 사라지면, 일정 시간이 지나면 슬레이브가 마스터로 takeover합니다.
+
+Binary Star 패턴은 iMatix OpenAMQ 서버를 위하여 Pieter Hintjens과 Martin Sustrik에 의해 개발되었습니다. 설계한 것은 이와 같습니다. 
+
+* straight-forward high-availability 솔루션을 제공합니다.
+* 실제로 이해하고 사용하기에 간단합니다. 
+* 필요한 경우에 failover를 합니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig61.png]]
+
+Binary Star pair가 동작하는 것을 확인하기 위해, 여기 failover에서 발생되는 현상을 보여주는 다른 시나리오가 있습니다.
+
+# primary 서버로 동작하는 하드웨어는 치명적인 문제 (전원 공급 장치 폭발, 기계 화재, 또는 누군가가 단순히 실수로 플러그를 뽑았을때)를 가지고 있습니다. 응용 프로그램이 이것을 모니터링하고 있으며, 백업 서버에 다시 연결합니다.
+# primary server의 네크워크가 죽고 어플리케이션은 백업서버로 재 접속하기 시작합니다. 
+# primary서버는 다운 되거나, 운영자에 의해 정지 됐으며, 자동으로 다시 시작하지 않습니다.
+
+장애 조치 (Failover)에서 복구는 다음과 같이 작동합니다. :
+
+# 운영자는 primary서버를 재기동하고 네트워크에서 사라진 원인이 무엇인지 해결합니다.
+# 운영자는 어플리케이션에 최소한의 혼란을 주도록 즉시, 백업서버를 중지합니다. 
+# 어플리케이션이 primary서버에 재연결되었을 때, 운영자는 백업서버를 재기동합니다.
+
+복구는 (master를 primary서버로 사용하기 위해) 수동 조작합니다. 자동복구는 적절하지 않다고 고통스러웠던 경험이 말해줍니다. 거기에는 몇 가지 이유가 있습니다. :
+
+* Faileover는 10-30초 어플리케이션에 서비스의 중단을 만듭니다. 실제 비상 사태가있다면, 이것은 전체 정전보다 훨씬 좋은 것입니다. 복구가 10~30초 보다 더 중단시간이 필요하다면, 사용자가 네트워크를 사용하지 않고, peak타임이 아닐 때 하는 것이 좋습니다.
+
+* 비상 사태가되면, 그것들을 고치기 위해 계획을 만드는 것도 좋은 생각입니다. 자동 복구는 더 이상 중복 확인없이 담당하는 서버를 기동하기에 시스템 관리자에게 불확실함을 줍니다.
+
+* 마지막으로, 당신은 네트워크가 failover되고 복구되면 운영자는 무슨 일이 일어 났는지 분석하기 어려
+운 위치에 처해질 수 있습니다. 이 서비스 중단이 발생했지만, 원인은 명확하지 않습니다.
+
+Binary Star 패턴은 primary서버가 다시 살고 백업서버가 죽으면 fail back할 것입니다. 사실 이것은 우리가 복구를 유발하는 방법입니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig62.png]]
+
+Binary Star pair에 대한 종료 과정 중 하나 입니다. :
+
+# 수동 서버를 정지 후 최종 active 서버를 중지하거나 또는,
+# 몇초 이내에 임의의 순서로 두서버를 정지합니다. 
+
+failover타임아웃보다 좀더 긴 시간이 필요하는 수동서버는 어플리케이션에 연결을 끊고, 재 연결하고 사용자에 방해가 된다고 해도 다시 연결을 끊는 원인이 발생 할 것입니다.
+
+[[# Detailed-Requirements]][[# header-80]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Detailed-Requirements Detailed Requirements]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-79 prev] [#header-81 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Binary Star는 정확하게 작동하고 간단합니다. 사실 현재의 디자인은 세 번째 재설계된 디자인 입니다. 이전 버전에서는 너무 복잡하고 너무 많은 일을 하려고 노력했습니다. 그리고 우리는 이해와 사용 가치가 충분한 설계가 될 때까지 기능을 파악했습니다.
+
+여기 high-availability 아키텍쳐를 위한 우리의 요구사항입니다.
+
+* failover는 하드웨어 고장, 화재, 사고등 재해 시스템 장애에 대한 보장을 제공하기 위한 것입니다.
+
+* failover 시간은 60초 이하여야 하고 10 초 이하면 더 좋을 것입니다. 
+
+* failover는 자동으로 일어나는 반면, 복구는 수동으로 해야 합니다. 우리는 자동으로 백업서버로 옮겨지기를 원하지만, 운영자가 문제들을 해결했을 때를 제외하고는 primary서버로 되돌려지는 것을 원하지 않으며, 다시 어플리케이션을 잠시 정지할 수 있는 좋은 시간을 결정합니다.
+
+* client어플리케이션에 대한 의미는 간단하고 개발자들이 이해하기 쉽게해야합니다. 이상적으로 이것은 client API에 내재하고 있어야합니다.
+
+* Binary Star pair에서 두 서버가 마스터 서버라고 생각하는 디자인을 방지하는 방법에 대한 네트워크 설계자에 대한 명확한 지침이 있어야합니다.
+
+* 두 서버가 시작되는 순서에 아무런 의존성이 없어야합니다.
+
+
+* 그것은 (그들이 강제로 재연결 하더라도) 클라이언트 응용프로그램을 정지없이 어느한쪽 서버의 계획을 정지하고 재시작을 할 수 있어야합니다.
+
+* 운영자는 항상 두 서버를 모니터 할 수 있어야 합니다.
+
+* 그것은 고속 전용 네트워크 연결을 사용하여 두 서버를 연결할 수 있어야합니다. 즉, failover동기화는 특정 IP 경로를 사용할 수 있어야합니다.
+
+우리는 이런 부분을 가정 합니다. :
+
+* 단일 백업서버가 충분한 보장을 제공하며, 우리는 다중 백업서버가 필요하지 않습니다.
+
+* primary 및 백업 서버가 응용 프로그램 부하를 수용할 수 있는 동일한 사양 이어야 합니다. 우리는 서버에서 로드밸런스를 하지 않습니다.
+
+* 거의 모든 시간을 아무것도 안 하는 완벽하게 사용하지 않는 백업 서버를 사용하기에 충분한 예산이 있습니다.
+
+가정 하지 않은 부분 입니다. :
+
+* active 백업서버 또는 로드밸런싱의 사용입니다. Binary Star pair에서, 백업 서버는 비활성 상태이고 primary 서버가 off-line이 될때까지 유용한 작업을 수행하지 않습니다.
+
+* 어떤 식으로든 영구적인 메시지 또는 트랜잭션을 처리합니다. 우리는 신뢰할 수 없는 (그리고 아마도 신뢰할 수) 서버 또는 Binary Star pairs의 네트워크라고 가정합니다.
+
+* 네트워크의 어떤 automatic exploration. Binary Star pair는 수동적이고, 명확하게 네트워크에 정의되고, 어플리케이션(적어도 구성데이터에서라도)에 알려져 있습니다.
+
+* 서버사이에서 상태나 메시지 복제. 모든 서버 상태는 failover할 때 어플리케이션에 의해 재생성되어 집니다.
+
+Binary Star에서 사용하는 주요 용어는 다음과 같습니다. :
+
+* **Primary** ? 기본서버이며, 일반적으로 ‘master’라는 한 개의 서버 입니다. 
+
+* **Backup** - 백업서버는 일반적으로 'slave'하는 한 개의 서버 입니다. 이것은 primary서버가 문제가 있을 때, client어플리케이션이 백업서버에 연결하도록 요청할때 master가 됩니다. 
+
+* **Master** ? 마스터서버는 client 연결을 받는 Binary Star pair의 하나 입니다. 정확히 하나의 마스터 서버는 항상있습니다.
+
+* **Slave** - 슬레이브 서버는 마스터가 사라지면 takeover되는 하나의 시스템입니다. Binary Star pair가 정상적으로 동작할때를 보면, primary서버는 master이고 bakup은 slave입니다. Failover가 발생했을 때 역할이 전환 됩니다. 
+
+Binary Star pair를 구성하기 위해 필요사항 입니다. :
+
+# backup서버가 어디에 있는지 primary서버에게 알립니다.
+# primary서버가 어디에 있는지 backup서버에게 알립니다.
+# 옵션으로, 두 서버를 동일하게 해서 failover응답시간을 조절합니다.
+
+주요 튜닝은 얼마나 자주 서버의 상태를 체크하고, 얼마나 빠르게 failover하기를 원하느냐에 달려 있습니다. 예제에서, failover timeout이 2000msec로 기본설정되어 있습니다. 만약 이것을 줄일려면, backup서버가 빠르게 master서버로 takeover해야 하지만, primary서버가 복구되는 경우에는 그 이상이 걸릴 수 있습니다. 예를 들어, 재시작하는데 crash가 발생하는 경우 쉘 스크립트에 기본서버로 설정 할 수 있습니다. 이 경우에 제한 시간은 primary 서버를 다시 시작하는 데 필요한 시간보다 더 많이 듭니다.
+
+Binary Star pair에서 동작하는 client어플리케이션을 위해서는,
+
+# 두 서버 주소를 알아야 합니다
+# 장애가 발생했다면 primary서버에서 backup서버로 접속 시도를 합니다.
+# 장애 접속을 감지하기 위해 일반적으로 heartbeating을 사용합니다.
+# 적어도 서버 failover 타임아웃보다 높은 재시도 간격으로 primary, 그다음 backup서버로 재연결을 시도합니다.
+# 서버에 필요한 모든 상태를 재 생성 합니다.
+# 메시지가 reliable하다면 failover하는 동안 발생된 메시지를 재 송신 합니다.
+
+이것은 사소한 작업이 아니며, 실제 최종 사용자 어플리케이션에서는 이것들이 API로 제공됩니다.
+
+이것은 Binary Star 패턴의 주요 제한사항 입니다. :
+
+* 서버 프로세스가 하나 이상의 Binary Star pair의 일부가 될 수 없습니다.
+* primary 서버는 단일 백업 서버를 가집니다.
+* backup 서버가 slave모드에서 유용한 일을 할 수 없습니다.
+* backup서버는 전체 어플리케이션 부하를 처리할 수 있어야합니다.
+* failover 구성은 런타임에 수정할 수 없습니다.
+* client어플리케이션은 failover를 위해 몇 가지 작업을 해야합니다.
+
+[[# Preventing-Split-Brain-Syndrome]][[# header-81]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Preventing-Split-Brain-Syndrome Preventing Split-Brain Syndrome]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-80 prev] [#header-82 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+"Split-brain syndrome"는 클러스터의 다른 부분들이 동시에 ‘master’라고 생각할 때입니다. 어플리케이션이 서로 바라보는 것을 멈추게 하는 원인이 됩니다. Binary Star는 3방향 결정 메커니즘에(서버가 어플리케이션 연결 요청을 얻거나 peer서버를 볼 수 없을 때까지 마스터가 되는 것을 결정하지 않을 것입니다.) 기초하여 split brain을 감지하고 제거를 위한 알고리즘을 가지고 있습니다.
+
+그러나 이것은 알고리즘을 속일 수 있는 네트워크를 (MIS)디자인하는 것은 여전히 가능합니다. 전형적인 시나리오는 어플리케이션 군을 가지고 있는 각 2개의 서버사이에 분산된 Binary Star pair이며, 두 서버사이에 단일 네트워크 링크가 있습니다. 연결이 단절되면 Binary Star pair의 절반 각각이 클라이언트 응용프로그램의 두 세트를 생성하고, 각 failover서버가 활성화 될 것입니다. 
+
+Split-brain상황을 방지하기 위해, 우리는 같은 스위치로 두개를 간단하게 연결하거나 더 좋게, 두 서버사이에 직접 cross-over 케이블을 사용하는 것과 같이 전용 네트워크 링크를 사용하여 Binary Star pairs를 연결해야 합니다.
+
+우리는 어플리케이션 군으로 각각 두 지점의 Binary Star 아키텍쳐를 구분하지 말아야 합니다. 이것은 네트워크 구조의 일반적인 유형인 반면, 우리는 이러한 경우에 high-availability failover가 아닌 federation을 사용합니다.
+
+적당한 paranoid 네트워크 구성은 단일 보다는 두개의 개인 클러스터 상호연결을 사용합니다. 더욱이, 클러스터를 위해 사용된 네트워크 카드는 메시지 in/out을 위해 사용된 것들과 다를수 있으며, 아마도 서버 하드웨어에 다른 PCI 경로에 대한 것입니다. 클러스터내의 가능한 실패로부터 네트워크내의 가능한 실패를 분류하는 것이 목표입니다. 네트워크 포트는 상대적으로 높은 실패율을 가집니다. 
+
+[[# Binary-Star-Implementation]][[# header-82]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Binary-Star-Implementation Binary Star Implementation]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-81 prev] [#header-83 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이것은 Binary Star 서버를 구현한 것입니다. :
+
+[[collapsible show="bstarsrv: Binary Star server in C" hide="bstarsrv: Binary Star server in C"]]
+[[include c:bstarsrv]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:bstarsrv Haxe] | [*http://zguide.zeromq.org/py:bstarsrv Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+이것은 클라이언트입니다. :
+
+[[collapsible show="bstarcli: Binary Star client in C" hide="bstarcli: Binary Star client in C"]]
+[[include c:bstarcli]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:bstarcli Haxe] | [*http://zguide.zeromq.org/py:bstarcli Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+Binary Star를 테스트 하려면, 서버, 그리고 클라이언트를 시작합니다. :
+
+[[code]]
+bstarsrv -p     # Start primary
+bstarsrv -b     # Start backup
+bstarcli
+[[/code]]
+
+그런 다음 primary서버를 죽이는 것에 의해 failover를 발생시킬수 있으며, backup서버를 죽이고, primary서버를 재시작하는 것으로 복구할 수 있습니다. client vote가 failover와 recovery를 어떻게 유발하는지에 유의 하세요.
+
+아래 그림은 fine state machine을 보여 줍니다. 녹색 states는 cient 요청을 받고 분홍색 states는 그것을 거부합니다. 이벤트는 peer state이므로, “Peer Active”는 그것의 active를 알려주는 다른 서버를 의미 합니다. “Client request”는 우리가 client요청을 받았다는 것을 의미 합니다. ‘Client Vote”는 client요청을 받았고 peer는 두개의 heartbeats에 의해 비활성 상태라는 것을 의미 합니다.
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig63.png]]
+
+서버는 상태교환을 위해 PUB-SUB을 사용합니다. 다른 소켓의 조합은 여기서 사용하지 않습니다. 메시지를 받을 준비가 된 peer가 없으면 PUSH와 DEALER는 기다립니다. PAIR는 peer가 사라지고 다시 돌아와도 재연결하지 않습니다. ROUTER는 메시지를 보내기 전에 peer의 주소가 필요합니다. 
+
+이것은 이진 스타 패턴의 주요 제한사항입니다.
+
+* 서버 프로세스가 하나 이상의 Binary Star pair의 일부가 될 수 없습니다.
+* Primary서버는 단일 백업 서버를 가집니다. (많은 백업서버가 아닌)
+* Backup 서버가 slave모드에서 유용한 일을 할 수 없습니다.
+* Backup 서버는 전체 응용 프로그램 부하를 처리할 수 있어야합니다.
+* Failover 구성은 런타임에 수정할 수 없습니다.
+* 클라이언트 응용 프로그램은 failover를 위해 몇 가지 작업을해야합니다.
+
+[[# Binary-Star-Reactor]][[# header-83]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Binary-Star-Reactor Binary Star Reactor]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-82 prev] [#header-84 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Binary Star는 유용하고, 재사용 reactor class로써 일반적으로 패키지화 합니다. 다른언어에서는 달리 사용될 수 있지만, C에서 우리는 czmq의 {{zloop}}클래스를 랩핑(wrapping) 합니다. C에서 {{bstar}}인터페이스는 다음과 같습니다. :
+
+[[include c:listing_30]]
+
+[[collapsible show="bstar: Binary Star core class in C" hide="bstar: Binary Star core class in C"]]
+[[include c:bstar]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:bstar Haxe] | [*http://zguide.zeromq.org/py:bstar Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+다음은 서버를 위한 짧은 주 프로그램 입니다.  :
+
+[[collapsible show="bstarsrv2: Binary Star server, using core class in C" hide="bstarsrv2: Binary Star server, using core class in C"]]
+[[include c:bstarsrv2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/hx:bstarsrv2 Haxe] | [*http://zguide.zeromq.org/py:bstarsrv2 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+[[# Brokerless-Reliability-Freelance-Pattern]][[# header-84]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Brokerless-Reliability-Freelance-Pattern Brokerless Reliability (Freelance Pattern)]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-83 prev] [#header-85 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+우리는 “brokerless messaging”으로써 ØMQ를 설명할 때 broker-based신뢰성에 대해서 너무 많은 초점을 두었습니다. 그러나 실상황의 메시지 입장에서 broker는 부담과 이익 모두를 가지고 있습니다. 실제로, 대부분의 메시징 구조는 분산되고 브로커로 된 메시징의 혼합에서 이익을 누릴 수 있습니다. 당신이 중점을 두는 tradeoff에 의해 자유롭게 결정했을 때 최고의 결과를 얻을 수 있습니다. 그리고 이것은 최적의 메시지 기반 아키텍쳐에 필수 입니다. 
+
+Brokers를 만드는 도구가 있어도 broker중심의 구조를 도입하지 않는 이유는, 일명 “devices”, 그리고 단지 실상황을 위해서 우리는 지금까지 수십번 다른 것들을 만들어 왔습니다.
+
+그래서 우리가 지금까지 만든 broker-based를 사용하지 않는 것으로 이 장을 끝낼 것이며, 우리가 “Freelance 패턴”라고 부르는 분산 peer-to-peer 구조로 변경할 것입니다. 우리의 사용사례는 resolution service 로 명명 될 것 입니다. 이것은 ØMQ아키텍쳐에서 일반적인 문제입니다. : 어떻게 연결할 수 있는 endpoint을 알 것인가? 코드에서 Hard-coding TCP/IP는 굉장히 취약합니다. 구성파일을 만들어 관리를 해야 합니다. 당신이 "google.com"는 "74.125.230.82"이라고 인식하기 위해, 당신이 사용하는 모든 PC 나 휴대 전화, 웹 브라우저를 직접 구성해야 한다고 상상해보십시오.
+
+ØMQ name service (그리고 우리는 간단히 구현해 볼 것입니다.)가 해야만 하는 것 입니다. :
+
+* 논리적 이름을 bind endpoint나 connect endpoint로 해석합니다. 실제 name service는 여러 bind endpoint와 가능한 여러 connect endpoint를 제공합니다. 
+
+* 여러 병렬 환경(예, 코드변경없이 “test” 대 “production”) 관리 제공
+
+* 만약 이것이 불가능하기 때문에 안정적이며, 어플리케이션이 네트워크에 연결할 수 없게 됩니다.
+
+Service-oriented Majordome broker 뒤에 name service를 넣는 것은 몇 몇 관점에서는 현명 합니다. 그러나 이것은 간단한 일이며, client가 직접 연결할 수 있는 서버로 name service를 노출시키는 것은 그렇게 놀라운 것이 아닙니다. 만약 우리가 이렇게 한다면, name service는 우리의 코드나 구성파일에 직접 입력이 되는 유일한 것이 global network endpoint가 됩니다. 
+
+우리가 처리해야 하는 실패의 유형은 server crashes, server busy looping, server overload 그리고 network issues입니다. 안정성을 획득하기 위해서, 우리는 한 서버가 충돌하고 사라지더라도 client가 다른 서버에 접속할 수 있도록 name servers의 pool을 만드는 것입니다. 실제로 두 개면 충분하지만, 예제에서 우리는 pool을 임의 크기로 할 것입니다. :
+
+[[=image https://github.com/imatix/zguide/raw/master/images/fig64.png]]
+
+이 아키텍쳐에서 client의 큰 집합은 직접 작은 서버 집합에 연결합니다. 서버는 각각의 주소로 바인딩합니다. 이것은 workers가 broker에 접속하는 Majordomo와 같은 broker-based 접근방식과 근본적으로 다릅니다. Client를 위한 몇가지 옵션이 있습니다.
+
+* lients는 REQ 소켓과 Lazy Pirate 패턴을 사용 할 수 있습니다. 간단하지만 계속해서 죽은 서버에 재접속하지 않기 위해 몇가지 추가적인 정보가 필요합니다. 
+
+* Clients는 DEALER소켓을 사용할 수 있으며, 응답을 얻을 때까지 모두 연결된 서버에 로드밸런스되는 외부 요청을 받습니다. 
+
+* Clients는 특정 서버를 주소화하기 위해 ROUTER소켓을 사용할 수 있습니다. 그러나 client는 어떻게 서버소켓의 ID를 알수 있나요? 서버가 처음에 client에 ping을 하던가, 각서버는 client에 해당하는 고정ID를 직접 입력해야 합니다. 
+
+[[# Model-One-Simple-Retry-and-Failover]][[# header-85]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Model-One-Simple-Retry-and-Failover Model One - Simple Retry and Failover]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-84 prev] [#header-86 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+지금 볼 것은 simple, brutal, complex, nasty 입니다. 먼저 ‘simple’로 시작합시다. 우리는 Lazy Pirate을 가지고 다중서버 endpoints로 재작성했습니다. 먼저 서버를 시작하고 인자로써 bind endpoint를 명시합니다. 하나 혹은 여러 서버를 시작합니다. :
+
+[[collapsible show="flserver1: Freelance server, Model One in C" hide="flserver1: Freelance server, Model One in C"]]
+[[include c:flserver1]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/lua:flserver1 Lua] | [*http://zguide.zeromq.org/py:flserver1 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+다음 인자로 하나 이상의 연결 endpoints을 지정하여 클라이언트를 시작합니다. :
+
+[[collapsible show="flclient1: Freelance client, Model One in C" hide="flclient1: Freelance client, Model One in C"]]
+[[include c:flclient1]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/py:flclient1 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+예를 들면 다음과 같습니다. :
+
+[[code]]
+flserver1 tcp://*:5555 &
+flserver1 tcp://*:5556 &
+flclient1 tcp://localhost:5555 tcp://localhost:5556
+[[/code]]
+
+* 단일서버경우, 클라이언트는 Lazy Pirate에 대해 정확하게, 여러 번 다시 시도합니다.
+* 다중서버경우, 클라이언트는 답장을 받을 때까지 아니면, 모든 서버를 거의 한번씩 시도 합니다.
+
+이것은 Lazy Pirate의 주요 약점을(즉 백업/대체 서버로 failover할 수 없음)해결합니다, 
+
+그러나 이 디자인은 실제 응용 프로그램에서 잘 작동하지 않습니다. 우리는 많은 소켓을 연결하고 있으며, 우리 주 이름 서버가 다운되면, 우리는 이 고통스러운 타임아웃를 매번 처리해야 할 겁니다.
+
+[[# Model-Two-Brutal-Shotgun-Massacre]][[# header-86]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Model-Two-Brutal-Shotgun-Massacre Model Two - Brutal Shotgun Massacre]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-85 prev] [#header-87 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이제 DEALER 소켓을 사용하기 위해 클라이언트를 바꿔봅시다. 여기서 우리의 목표는 가능한 최단 시간 내에 primary서버의 다운 여부에 상관없이 답변을 얻도록 하는 것입니다. Client는 이 접근 방식을 취합니다.
+ 
+* 우리는 모든 서버에 접속하도록 설정합니다.
+* 요청이 있을 때, 우리가 갖고 있는 서버에 매번 전달합니다.
+* 우리는 첫번째 답변을 기다리고, 그것을 처리합니다.
+* 우리는 다른 답변은 무시합니다. 
+
+모든 서버가 동작중일 때 발생되는 것은, ØMQ는 각서버가 한 요청을 얻고 한 응답을 보내도록 요청을 분배할 것입니다. 어떤 서버가 offline이고 disconected일 때, ØMQ는 나머지 서버에 요청을 보낼 것입니다. 그래서 어떤 경우에는 한 서버가 한 개 이상의 같은 요청을 받을 수 있습니다. 
+
+client입장에서 번거로운 것은 많은 응답을 받을 수 있지만, 얻게 될 정확한 응답개수를 보장받지 못한 다는 것입니다. 요청과 응답은 유실될 수 있습니다. (예, 요청을 처리하는 동안 서버가 죽는 경우)
+
+그래서 우리는 요청에 숫자를 매겨야 하며 요청 숫자에 일치하지 않는 응답은 무시해야 합니다. 한 서버에서 작동하는 echo 서버로 이것을 이해하기에는 적당하지 않습니다. 그래서 우리는 내용으로 “OK”을 가지고 정확한 숫자를 매긴 응답을 리턴하는 두 서버를 만들 것입니다. 우리는 두 부분(순번 + 전문[body])으로 구성된 메시지를 사용할 것입니다. 
+
+매번 bind endpoint를 지정한 한 개 이상의 서버를 시작합니다.  :
+
+[[collapsible show="flserver2: Freelance server, Model Two in C" hide="flserver2: Freelance server, Model Two in C"]]
+[[include c:flserver2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/lua:flserver2 Lua] | [*http://zguide.zeromq.org/py:flserver2 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+클라이언트를시작하고, 인수(argument)로 endpoint 연결지정을 합니다. :
+
+[[collapsible show="flclient2: Freelance client, Model Two in C" hide="flclient2: Freelance client, Model Two in C"]]
+[[include c:flclient2]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/py:flclient2 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+이 노트에 일부 코드들 입니다. :
+
+* Client는 ØMQ 컨텍스트와 소켓을 생성하는 복잡한 작업을 간단한 API로 만들어 서버와 통신합니다. 
+
+* Client는 몇 초내에 어떤 응답가능한 서버를 찾지 못한다면 추적(chase)을 포기합니다.
+
+* Client는 메시지 앞에 빈 메시지 부분을 추가하는 가용한 REP envelope을 만들어야 합니다. 
+
+Client는 10,000 이름 확인 요청(서버가 없는 것은 모두 가짜임)을 수행하고 평균 비용을 측정합니다. 우리의 테스트에서 한서버에 통신하는 것은 약 60usec가 걸립니다. 3서버에 통신하는 것은 약 80usec가 걸립니다.
+
+shotgun 방식의 장단점 :
+
+* 장점 : 간단합니다. 만들고 이해하기에 쉽습니다. 
+* 장점 : Failover 작업을 수행하며, 적어도 한서버가 동작중이라면 빠르게 동작합니다. 
+* 단점 : 불필요한 네트워크 트래픽을 생성합니다.
+* 단점 : 서버의 임의 우선순위를 지정 할 수 없습니다. 즉, Primary 다음 secondary 입니다. 
+* 단점 : 서버는 한 번에 한 요청을 처리할 수 있습니다. 
+
+[[# Model-Three-Complex-and-Nasty]][[# header-87]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
+++++ [#Model-Three-Complex-and-Nasty Model Three - Complex and Nasty]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-86 prev] [#header-88 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+Shotgun 방식은 사실 너무 좋은 것 같습니다. 과학적으로 모든 대안을 가지고 해 봅시다. 결국 어렵게 밖에 파악할 수 없는 경우에는 복잡하고 잡다한 경우와 옵션들을 일일이 해보는 것입니다. 
+
+우리는 ROUTER소켓으로 변환하여 client의 주요 문제들을 해결할 수 있습니다. 우리는 죽은 서버는 피하고 일반적으로 만들 수 있는 한 현명하게 특정서버에 요청을 보낼 수 있습니다. 우리는 또한 ROUTER소켓으로 전환하여 서버(단일 threadedness)의 주요 문제점을 해결 할 수 있습니다. 
+
+그러나 두 transient소켓 사이의 ROUTER-to-ROUTER를 하는 것은 불가능합니다. 양쪽은 첫 메시지를 받을 때만 ID를 생성하고, 따라서 첫 메시지를 받을 때까지 다른 것과 통신할 수 없습니다. 이것을 해결하는 유일한 방법은 속임수를 쓰는 것입니다. 즉, 한 방향으로 ID를 하드코딩해서 사용하는 것입니다. 클라이언트와 서버 경우에는 클라이언트가 서버ID를 알고 있는 것입니다. 그 반대로 하는 것은 복잡하고 미친짓 입니다. 
+
+다른 개념을 발명하기 보다, 우리는 ID로 연결 endpoint를 사용할 것입니다. 이것은 이미 가지고 있는 shotgun모델보다 더 사전 지식없이 양쪽이 동의할 수 있는 고유 문자열 입니다. 그것은 두 ROUTER소켓을 연결하는 엉큼하고 효과적인 방법입니다.
+
+ØMQ ID 처리 방식을 기억하세요. 이것은 소켓에 바인딩하기 전에 서버 ROUTER소켓이 ID를 설정합니다. Client가 연결할 때 양쪽이 실제 메시지를 보내기 전에 ID를 교환하기 위해 handshake를 합니다. ID를 가지고 있지 않은 client ROUTER소켓은 서버에 ID를 null로 보냅니다. 서버는 client를 위해 임의의 UUID를 생성합니다. 서버는 client에 그 ID를 보냅니다.
+
+이것은 client가 연결이 되자마자 서버에 메시지를 보낼 수 있다는 것을 의미 합니다. 이것은 zmq_connect한후 즉시는 아니지만 어떤 임의의 시간 이후 입니다. 여기서 한가지 문제점 : 우리는 언제 서버가 실제적으로 가용하고 연결 handshake를 완료 했는지를 모릅니다. 만일 서버가 실제로 온라인 상태라면 이것은 몇 milliseconds 후 일 수 있습니다. 만일 서버가 다운되고 관리자가 점심 먹으로 갔다면 1시간이 될 수도 있습니다. 
+
+그래서 우리는 서버가 연결되어 있고 작동이 가능한지 알아야 할 필요가 있습니다. Freelance패턴에서 broker-based 패턴과는 달리 우리가 이전 장에서 보았듯이, 서버는 연결하기 전까지 가만히 기다리고 있습니다. 그래서 우리가 이것에 요청할 때까지 아무것도 할 수 없고, 이것이 온라인이 되어 우리에게 연결할 때까지 우리는 서버와 통신할 수 없습니다.
+
+내 솔루션은 model 2에서 shotgun방식의 조금을 혼합한 것입니다. 우리는 실제 요청 보다는 ping-pong heartbeat의 종류를 fire하지 않을 것입니다.
+
+이것을 다시 프로토콜 영역에서 보면, 여기 Freelance client와 서버가 PING-PONG 명령, request-reply명령을 교환하는 방법을 정의하는 간단한 사양(spec)이 있습니다.  :
+
+* http://rfc.zeromq.org/spec:10
+
+이것은 간단히 서버로 구현한 것입니다. 여기 Model Tree, echo서버가 있습니다. 
+
+서버의 Model Three는 약간 다릅니다. :
+
+[[collapsible show="flserver3: Freelance server, Model Three in C" hide="flserver3: Freelance server, Model Three in C"]]
+[[include c:flserver3]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/lua:flserver3 Lua] | [*http://zguide.zeromq.org/py:flserver3 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+그러나, Freelance client는 좀 큽니다. 명확하게, 이것은 예제 어플리케이션과 작업을 수행하는 클래스로 분리했습니다. 이것이 상위 어플리케이션입니다. :
+
+[[collapsible show="flclient3: Freelance client, Model Three in C" hide="flclient3: Freelance client, Model Three in C"]]
+[[include c:flclient3]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/py:flclient3 Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+그리고 여기 Majordomo broker처럼 복잡하고 큰 클라이언트 API 클래스가 있습니다. : 
+
+[[collapsible show="flcliapi: Freelance client API in C" hide="flcliapi: Freelance client API in C"]]
+[[include c:flcliapi]]
+[[/collapsible]]
+[[size smaller]][*http://zguide.zeromq.org/py:flcliapi Python] | [http://zguide.zeromq.org/main:translate Ada | Basic | C++ | C# | Clojure | CL | Erlang | F# | Go | Haskell | Haxe | Java | Lua | Node.js | Objective-C | ooc | Perl | PHP | Ruby | Scala][[/size]]
+
+이 API 구현은 매우 정교하고 우리가 전에 보지 못했던 기술을 사용합니다. :
+
+**Asynchronous agent class**
+
+Client API는 두 부분, 어플리케이션 thread에서 동작하는 동기 ‘flcliapi’와 백그라운드에서 동작하는 비동기 ‘agent’클래스로 구성됩니다. Flcliapi와 agent 클래스는 inproc소켓을 통해 서로 통신합니다. 모든것은 ØMQ API에(예 : 컨텍스트를 생성하고 종료 등) 숨겨져 있습니다. Mini-broker와 같은 효과적인 동작을 위해 agent는 우리가 요청 할 때, 가용한 서버에 도달하기 위해 최선의 노력을 할 수 있도록 백그라운드에서 서버와 통신합니다. 
+
+**Patient connections**
+
+ROUTER소켓은 라우팅 할 수 없는 메시지를 조용히 없애는 기능이 있습니다. 이것은 당신이 client를 서버(ROUTER-to-ROUTER)에 연결하고 즉시 메시지를 보내려고 한 다면 작동하지 않는다는 것을 의미 합니다. flcliapi클래스는 어플리케이션이 서버에 초기 연결을 할 때 잠시 아무 동작도 하지 않습니다. 이후 durable 소켓 때문에, ØMQ는 서버가 사라진다고 해도 서버의 메시지를 없애지 않습니다.
+
+**Tickless poll timer**
+
+이전에서 루프는 항상 고정된 값을 사용했습니다. 예를 들어 1초, 이것은 항상 살아 있어야 되는 CPU 파워 비용이 드는 노트북과 모바일 폰과 같은 전원에 민감한 client에서는 훌륭하진 않지만 적당합니다. 재미로, 지구를 구하기 위해 agent가 기대하는 다음 timeout에 근간해서 지연을 계산하는 ‘tickless timer’를 사용합니다. 적절한 구현은 정해진 timeouts 목록을 유지하는 것입니다. 우리는 그냥 시간 초과를 확인하고 다음 때까지 지연을 계산합니다.
+
+[[# Conclusion]][[# header-88]]
+[[table style="width:100%"]]
+[[row]]
+[[cell]]
++++ [#Conclusion Conclusion]
+[[/cell]]
+[[cell style="text-align:right; font-size:80%;"]]
+[#top top] [#header-87 prev] [#header-89 next]
+[[/cell]]
+[[/row]]
+[[/table]]
+
+이 장에서 우리는 각기 어떤 비용과 이익을 가지고 있는 신뢰할 수있는 request-reply 메커니즘의 다양한 면을 봤습니다.  이것이 최적은 아니지만 예제 코드는 실제 사용 가능하도록 대부분 준비가 된 것입니다. 모든 패턴중 broker-based 신뢰성을 위한 Majordomo패턴과 brokerless 신뢰성을 위한 Freelance패턴 두가지는 뛰어 납니다.

@@ -1,0 +1,3 @@
+[[div class="code"]]
+zmq_setsockopt (socket, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"Lucy"[[/span]], [[span style="color:#666666"]]4[[/span]]);
+[[/div]]

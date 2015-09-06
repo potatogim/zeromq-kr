@@ -1,0 +1,3 @@
+This category holds documentation for the ØMQ project.  Anyone can submit a document.  All contributions fall under the [http://www.zeromq.org/legal:terms-of-use Terms of Use] of this site.
+----
+[[include include:wiki-start category=docs]]

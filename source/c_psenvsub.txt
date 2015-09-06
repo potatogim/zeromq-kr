@@ -1,0 +1,29 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Pubsub envelope subscriber
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and subscriber//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]subscriber [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_SUB);
+{{@@    @@}}zmq_connect (subscriber, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5563"[[/span]]);
+{{@@    @@}}zmq_setsockopt (subscriber, ZMQ_SUBSCRIBE, [[span style="color:#BA2121"]]"B"[[/span]], [[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Read envelope with address//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] s_recv (subscriber);
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Read message contents//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]contents [[span style="color:#666666"]]=[[/span]] s_recv (subscriber);
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"@@[@@%s@@]@@ %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], address, contents);
+{{@@        @@}}free (address);
+{{@@        @@}}free (contents);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We never get here but clean up anyhow//[[/span]]
+{{@@    @@}}zmq_close (subscriber);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,35 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Hello World server in C++
+@@//@@{{@@  @@}}Binds REP socket to tcp:@@//@@*:5555
+@@//@@{{@@  @@}}Expects "Hello" from client, replies with "World"
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include <zmq.hpp>
+#include <string>
+#include <iostream>
+#include <unistd.h>[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] main () {
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and socket//[[/span]]
+{{@@    @@}}zmq[[span style="color:#666666"]]::[[/span]]context_t context ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zmq[[span style="color:#666666"]]::[[/span]]socket_t socket (context, ZMQ_REP);
+{{@@    @@}}socket.bind ([[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#008000"]]**true**[[/span]]) {
+{{@@        @@}}zmq[[span style="color:#666666"]]::[[/span]]message_t request;
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Wait for next request from client//[[/span]]
+{{@@        @@}}socket.recv ([[span style="color:#666666"]]&[[/span]]request);
+{{@@        @@}}std[[span style="color:#666666"]]::[[/span]]cout [[span style="color:#666666"]]@@<<@@[[/span]] [[span style="color:#BA2121"]]"Received Hello"[[/span]] [[span style="color:#666666"]]@@<<@@[[/span]] std[[span style="color:#666666"]]::[[/span]]endl;
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some 'work'//[[/span]]
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send reply back to client//[[/span]]
+{{@@        @@}}zmq[[span style="color:#666666"]]::[[/span]]message_t reply ([[span style="color:#666666"]]5[[/span]]);
+{{@@        @@}}memcpy (([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]) reply.data (), [[span style="color:#BA2121"]]"World"[[/span]], [[span style="color:#666666"]]5[[/span]]);
+{{@@        @@}}socket.send (reply);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

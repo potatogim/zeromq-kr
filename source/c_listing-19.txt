@@ -1,0 +1,5 @@
+[[div class="code"]]
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Specify swap space in bytes//[[/span]]
+[[span style="color:#B00040"]]uint64_t[[/span]] swap [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]25000000[[/span]];
+zmq_setsockopt (publisher, ZMQ_SWAP, [[span style="color:#666666"]]&[[/span]]swap, [[span style="color:#008000"]]**sizeof**[[/span]] (swap));
+[[/div]]

@@ -1,0 +1,5 @@
+[[div class="code"]]
+mdwrk_t [[span style="color:#666666"]]*[[/span]]mdwrk_new{{@@     @@}}([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]broker,[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service);
+[[span style="color:#B00040"]]void[[/span]]{{@@     @@}}mdwrk_destroy (mdwrk_t [[span style="color:#666666"]]@@**@@[[/span]]self_p);
+zmsg_t{{@@  @@}}[[span style="color:#666666"]]*[[/span]]mdwrk_recv{{@@    @@}}(mdwrk_t [[span style="color:#666666"]]*[[/span]]self, zmsg_t [[span style="color:#666666"]]*[[/span]]reply);
+[[/div]]

@@ -1,0 +1,43 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Lazy Pirate server
+@@//@@{{@@  @@}}Binds REQ socket to tcp:@@//@@*:5555
+@@//@@{{@@  @@}}Like hwserver except:
+@@//@@{{@@   @@}}- echoes request as-is
+@@//@@{{@@   @@}}- randomly runs slowly, or exits to simulate a crash.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]server [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REP);
+{{@@    @@}}zmq_bind (server, [[span style="color:#BA2121"]]"tcp:@@//@@*:5555"[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] cycles [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] s_recv (server);
+{{@@        @@}}cycles[[span style="color:#666666"]]++[[/span]];
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Simulate various problems, after a few cycles//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]3[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: simulating a crash[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]3[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: simulating CPU overload[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}sleep ([[span style="color:#666666"]]2[[/span]]);
+{{@@        @@}}}
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: normal request (%s)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], request);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some heavy work//[[/span]]
+{{@@        @@}}s_send (server, request);
+{{@@        @@}}free (request);
+{{@@    @@}}}
+{{@@    @@}}zmq_close (server);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

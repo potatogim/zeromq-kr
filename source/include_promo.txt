@@ -1,0 +1,3 @@
+[!--
+**Does your business need this technology yesterday?** There are many open source projects growing around ØMQ, but do you want to simply wait until someone else makes it happen? //Become a ØMQ Corporate Sponsor and get the technology you need faster.// It's a win-win. You get new features and layers you need faster, you save on your own development and license costs. Your company and products get visibility with an elite technical audience. Yet others maintain and improve the code, at no cost to you. iMatix will organize the community infrastructure, find highly skilled resources to do the work. And you can get full 24/7 support on any technology we make. [http://www.imatix.com/contact Contact us now if you want to know more].
+--]

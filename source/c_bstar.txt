@@ -1,0 +1,331 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]/*{{@@  @@}}=====================================================================
+{{@@    @@}}bstar - Binary Star reactor
+
+{{@@    @@}}@@---------------------------------------------------------------------@@
+{{@@    @@}}Copyright (c) 1991-2011 iMatix Corporation <www.imatix.com>
+{{@@    @@}}Copyright other contributors as noted in the AUTHORS file.
+
+{{@@    @@}}This file is part of the ZeroMQ Guide: http:@@//@@zguide.zeromq.org
+
+{{@@    @@}}This is free software; you can redistribute it and/or modify it under
+{{@@    @@}}the terms of the GNU Lesser General Public License as published by
+{{@@    @@}}the Free Software Foundation; either version 3 of the License, or (at
+{{@@    @@}}your option) any later version.
+
+{{@@    @@}}This software is distributed in the hope that it will be useful, but
+{{@@    @@}}WITHOUT ANY WARRANTY; without even the implied warranty of
+{{@@    @@}}MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+{{@@    @@}}Lesser General Public License for more details.
+
+{{@@    @@}}You should have received a copy of the GNU Lesser General Public
+{{@@    @@}}License along with this program. If not, see
+{{@@    @@}}<http:@@//@@www.gnu.org/licenses/>.
+{{@@    @@}}=====================================================================
+*/[[/span]][[/span]]
+[[span style="color:#BC7A00"]]
+#include "bstar.h"[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}States we can be in at any point in time//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**enum**[[/span]] {
+{{@@    @@}}STATE_PRIMARY [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]],{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Primary, waiting for peer to connect//[[/span]]
+{{@@    @@}}STATE_BACKUP [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Backup, waiting for peer to connect//[[/span]]
+{{@@    @@}}STATE_ACTIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]3[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Active - accepting connections//[[/span]]
+{{@@    @@}}STATE_PASSIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]4[[/span]]{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Passive - not accepting connections//[[/span]]
+} state_t;
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Events, which start with the states our peer can be in//[[/span]]
+[[span style="color:#008000"]]**typedef**[[/span]] [[span style="color:#008000"]]**enum**[[/span]] {
+{{@@    @@}}PEER_PRIMARY [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is pending primary//[[/span]]
+{{@@    @@}}PEER_BACKUP [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]],{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is pending backup//[[/span]]
+{{@@    @@}}PEER_ACTIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]3[[/span]],{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is active//[[/span]]
+{{@@    @@}}PEER_PASSIVE [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]4[[/span]],{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}HA peer is passive//[[/span]]
+{{@@    @@}}CLIENT_REQUEST [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]5[[/span]]{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Client makes request//[[/span]]
+} event_t;
+[[span style="color:#BC7A00"]]
+
+@@//@@{{@@  @@}}We send state information every this often
+@@//@@{{@@  @@}}If peer doesn't respond in two heartbeats, it is 'dead'
+#define BSTAR_HEARTBEAT{{@@     @@}}1000{{@@        @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}In msecs//[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Structure of our class//[[/span]]
+
+[[span style="color:#008000"]]**struct**[[/span]] _bstar_t {
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx;{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our private context//[[/span]]
+{{@@    @@}}zloop_t [[span style="color:#666666"]]*[[/span]]loop;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Reactor loop//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statepub;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}State publisher//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]statesub;{{@@             @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}State subscriber//[[/span]]
+{{@@    @@}}state_t state;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current state//[[/span]]
+{{@@    @@}}event_t event;{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Current event//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int64_t[[/span]] peer_expiry;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When peer is considered 'dead'//[[/span]]
+{{@@    @@}}zloop_fn [[span style="color:#666666"]]*[[/span]]voter_fn;{{@@         @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Voting socket handler//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]voter_arg;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Arguments for voting handler//[[/span]]
+{{@@    @@}}zloop_fn [[span style="color:#666666"]]*[[/span]]master_fn;{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Call when become master//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]master_arg;{{@@           @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Arguments for handler//[[/span]]
+{{@@    @@}}zloop_fn [[span style="color:#666666"]]*[[/span]]slave_fn;{{@@         @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Call when become slave//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]slave_arg;{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Arguments for handler//[[/span]]
+};
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Binary Star finite state machine (applies event to state)
+@@//@@{{@@  @@}}Returns -1 if there was an exception, 0 if event was valid.[[/span]][[/span]]
+
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]s_execute_fsm[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Primary server is waiting for peer to connect//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Accepts CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_PRIMARY) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_BACKUP) {
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: connected to backup (slave), ready as master"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]master_fn)
+{{@@                @@}}(self[[span style="color:#666666"]]->[[/span]]master_fn) (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#008000"]]NULL[[/span]], self[[span style="color:#666666"]]->[[/span]]master_arg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: connected to backup (master), ready as slave"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_PASSIVE;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]slave_fn)
+{{@@                @@}}(self[[span style="color:#666666"]]->[[/span]]slave_fn) (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#008000"]]NULL[[/span]], self[[span style="color:#666666"]]->[[/span]]slave_arg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] CLIENT_REQUEST) {
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: request from client, ready as master"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]master_fn)
+{{@@                @@}}(self[[span style="color:#666666"]]->[[/span]]master_fn) (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#008000"]]NULL[[/span]], self[[span style="color:#666666"]]->[[/span]]master_arg);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Backup server is waiting for peer to connect//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Rejects CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_BACKUP) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: connected to primary (master), ready as slave"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_PASSIVE;
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]slave_fn)
+{{@@                @@}}(self[[span style="color:#666666"]]->[[/span]]slave_fn) (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#008000"]]NULL[[/span]], self[[span style="color:#666666"]]->[[/span]]slave_arg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] CLIENT_REQUEST)
+{{@@            @@}}rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server is active//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Accepts CLIENT_REQUEST events in this state//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}The only way out of ACTIVE is death//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_ACTIVE) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_ACTIVE) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Two masters would mean split-brain//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"E: fatal error - dual masters, aborting"[[/span]]);
+{{@@            @@}}rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Server is passive//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}CLIENT_REQUEST events can trigger failover if peer looks dead//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_PASSIVE) {
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_PRIMARY) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer is restarting - become active, peer will go passive//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: primary (slave) is restarting, ready as master"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_BACKUP) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer is restarting - become active, peer will go passive//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"I: backup (slave) is restarting, ready as master"[[/span]]);
+{{@@            @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] PEER_PASSIVE) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Two passives would mean cluster would be non-responsive//[[/span]]
+{{@@            @@}}zclock_log ([[span style="color:#BA2121"]]"E: fatal error - dual slaves, aborting"[[/span]]);
+{{@@            @@}}rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]==[[/span]] CLIENT_REQUEST) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Peer becomes master if timeout has passed//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}It's the client request that triggers the failover//[[/span]]
+{{@@            @@}}assert (self[[span style="color:#666666"]]->[[/span]]peer_expiry [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zclock_time () [[span style="color:#666666"]]>=[[/span]] self[[span style="color:#666666"]]->[[/span]]peer_expiry) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If peer is dead, switch to the active state//[[/span]]
+{{@@                @@}}zclock_log ([[span style="color:#BA2121"]]"I: failover successful, ready as master"[[/span]]);
+{{@@                @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] STATE_ACTIVE;
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If peer is alive, reject connections//[[/span]]
+{{@@                @@}}rc [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Call state change handler if necessary//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]==[[/span]] STATE_ACTIVE [[span style="color:#666666"]]&&[[/span]] self[[span style="color:#666666"]]->[[/span]]master_fn)
+{{@@            @@}}(self[[span style="color:#666666"]]->[[/span]]master_fn) (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#008000"]]NULL[[/span]], self[[span style="color:#666666"]]->[[/span]]master_arg);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] rc;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Reactor event handlers...[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Publish our state to peer//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_send_state[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}bstar_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}zstr_sendf (self[[span style="color:#666666"]]->[[/span]]statepub, [[span style="color:#BA2121"]]"%d"[[/span]], self[[span style="color:#666666"]]->[[/span]]state);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Receive state from peer, execute finite state machine//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_recv_state[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}bstar_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]state [[span style="color:#666666"]]=[[/span]] zstr_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (state) {
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]=[[/span]] atoi (state);
+{{@@        @@}}self[[span style="color:#666666"]]->[[/span]]peer_expiry [[span style="color:#666666"]]=[[/span]] zclock_time () [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]*[[/span]] BSTAR_HEARTBEAT;
+{{@@        @@}}free (state);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] s_execute_fsm (self);
+}
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Application wants to speak to us, see if it's possible//[[/span]]
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]s_voter_ready[[/span]] (zloop_t [[span style="color:#666666"]]*[[/span]]loop, zmq_pollitem_t [[span style="color:#666666"]]*[[/span]]poller, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}bstar_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]) arg;
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If server can accept input now, call appl handler//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]event [[span style="color:#666666"]]=[[/span]] CLIENT_REQUEST;
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (s_execute_fsm (self) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@        @@}}puts ([[span style="color:#BA2121"]]"CLIENT REQUEST"[[/span]]);
+{{@@        @@}}(self[[span style="color:#666666"]]->[[/span]]voter_fn) (self[[span style="color:#666666"]]->[[/span]]loop, poller[[span style="color:#666666"]]->[[/span]]socket, self[[span style="color:#666666"]]->[[/span]]voter_arg);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Destroy waiting message, no-one to read it//[[/span]]
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (poller[[span style="color:#666666"]]->[[/span]]socket);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Constructor[[/span]][[/span]]
+
+bstar_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]bstar_new[[/span]] ([[span style="color:#B00040"]]int[[/span]] primary, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]local, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]remote)
+{
+{{@@    @@}}bstar_t
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self;
+
+{{@@    @@}}self [[span style="color:#666666"]]=[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]) zmalloc ([[span style="color:#008000"]]**sizeof**[[/span]] (bstar_t));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Initialize the Binary Star//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]loop [[span style="color:#666666"]]=[[/span]] zloop_new ();
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]state [[span style="color:#666666"]]=[[/span]] primary[[span style="color:#666666"]]?[[/span]] STATE_PRIMARY[[span style="color:#666666"]]:[[/span]] STATE_BACKUP;
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create publisher for state going to peer//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]statepub [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_PUB);
+{{@@    @@}}zsocket_bind (self[[span style="color:#666666"]]->[[/span]]statepub, local);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Create subscriber for state coming from peer//[[/span]]
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]statesub [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, ZMQ_SUB);
+{{@@    @@}}zsocket_connect (self[[span style="color:#666666"]]->[[/span]]statesub, remote);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set-up basic reactor events//[[/span]]
+{{@@    @@}}zloop_timer (self[[span style="color:#666666"]]->[[/span]]loop, BSTAR_HEARTBEAT, [[span style="color:#666666"]]0[[/span]], s_send_state, self);
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { self[[span style="color:#666666"]]->[[/span]]statesub, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}zloop_poller (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#666666"]]&[[/span]]poller, s_recv_state, self);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Destructor[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]bstar_destroy[[/span]] (bstar_t [[span style="color:#666666"]]@@**@@[[/span]]self_p)
+{
+{{@@    @@}}assert (self_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]*[[/span]]self_p) {
+{{@@        @@}}bstar_t [[span style="color:#666666"]]*[[/span]]self [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]*[[/span]]self_p;
+{{@@        @@}}zloop_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]loop);
+{{@@        @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]self[[span style="color:#666666"]]->[[/span]]ctx);
+{{@@        @@}}free (self);
+{{@@        @@}}[[span style="color:#666666"]]*[[/span]]self_p [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}}
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Return underlying zloop reactor, lets you add additional timers and
+@@//@@{{@@  @@}}readers.[[/span]][[/span]]
+
+zloop_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]bstar_zloop[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] self[[span style="color:#666666"]]->[[/span]]loop;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Create socket, bind to local endpoint, and register as reader for
+@@//@@{{@@  @@}}voting. The socket will only be available if the Binary Star state
+@@//@@{{@@  @@}}machine allows it. Input on the socket will act as a "vote" in the
+@@//@@{{@@  @@}}Binary Star scheme.{{@@  @@}}We require exactly one voter per bstar instance.[[/span]][[/span]]
+
+[[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]bstar_voter[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]endpoint, [[span style="color:#B00040"]]int[[/span]] type, zloop_fn handler,
+{{@@             @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Hold actual handler+arg so we can call this later//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]socket [[span style="color:#666666"]]=[[/span]] zsocket_new (self[[span style="color:#666666"]]->[[/span]]ctx, type);
+{{@@    @@}}zsocket_bind (socket, endpoint);
+{{@@    @@}}assert ([[span style="color:#666666"]]![[/span]]self[[span style="color:#666666"]]->[[/span]]voter_fn);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]voter_fn [[span style="color:#666666"]]=[[/span]] handler;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]voter_arg [[span style="color:#666666"]]=[[/span]] arg;
+{{@@    @@}}zmq_pollitem_t poller [[span style="color:#666666"]]=[[/span]] { socket, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN };
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] zloop_poller (self[[span style="color:#666666"]]->[[/span]]loop, [[span style="color:#666666"]]&[[/span]]poller, s_voter_ready, self);
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Register state change handlers[[/span]][[/span]]
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]bstar_new_master[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self, zloop_fn handler, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}assert ([[span style="color:#666666"]]![[/span]]self[[span style="color:#666666"]]->[[/span]]master_fn);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]master_fn [[span style="color:#666666"]]=[[/span]] handler;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]master_arg [[span style="color:#666666"]]=[[/span]] arg;
+}
+
+[[span style="color:#B00040"]]void[[/span]]
+[[span style="color:#0000FF"]]bstar_new_slave[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self, zloop_fn handler, [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]arg)
+{
+{{@@    @@}}assert ([[span style="color:#666666"]]![[/span]]self[[span style="color:#666666"]]->[[/span]]slave_fn);
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]slave_fn [[span style="color:#666666"]]=[[/span]] handler;
+{{@@    @@}}self[[span style="color:#666666"]]->[[/span]]slave_arg [[span style="color:#666666"]]=[[/span]] arg;
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Enable/disable verbose tracing[[/span]][[/span]]
+[[span style="color:#B00040"]]void[[/span]] [[span style="color:#0000FF"]]bstar_set_verbose[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self, Bool verbose)
+{
+{{@@    @@}}zloop_set_verbose (self[[span style="color:#666666"]]->[[/span]]loop, verbose);
+}
+
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}@@---------------------------------------------------------------------@@
+@@//@@{{@@  @@}}Start the reactor, ends if a callback function returns -1, or the
+@@//@@{{@@  @@}}process received SIGINT or SIGTERM.[[/span]][[/span]]
+
+[[span style="color:#B00040"]]int[[/span]]
+[[span style="color:#0000FF"]]bstar_start[[/span]] (bstar_t [[span style="color:#666666"]]*[[/span]]self)
+{
+{{@@    @@}}assert (self[[span style="color:#666666"]]->[[/span]]voter_fn);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] zloop_start (self[[span style="color:#666666"]]->[[/span]]loop);
+}
+[[/div]]

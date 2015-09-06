@@ -1,0 +1,55 @@
+[[div style="width:40%; float:left;"]]
+
+++ 빨리가기: http://kr.zero.mq
+
+**기본 핵심 API**
+ØMQ의 기본 핵심 API는 [http://www.zeromq.org/docs:core-api libzmq]입니다. 이것은 ØMQ을 위해 완벽한 공식적인 API이며, 거의 모든 프로그램 언어 바인딩에 연결됩니다.
+
+**프로그램 언어 바인딩**
+언어 바인딩은 주로 기본 핵심 API를 기반(wrap)으로 하며, 언어 특성에 따른 사상을 추가했습니다. 
+[http://www.zeromq.org/bindings:bash Bash] | [http://www.zeromq.org/bindings:c C] | [http://www.zeromq.org/bindings:cpp C++] | [http://www.zeromq.org/bindings:clr C#] | [http://www.zeromq.org/bindings:cl Common Lisp] | [http://www.zeromq.org/bindings:d D] | [http://www.zeromq.org/bindings:erlang Erlang] | [http://www.zeromq.org/bindings:go Go] | [http://www.zeromq.org/bindings:haskell Haskell] | [http://www.zeromq.org/bindings:java Java] | [http://www.zeromq.org/bindings:lua Lua] | [http://www.zeromq.org/bindings:node-js node.js] | [http://www.zeromq.org/bindings:perl Perl] | [http://www.zeromq.org/bindings:php PHP] | [http://www.zeromq.org/bindings:python Python] | [http://www.zeromq.org/bindings:twisted Python (Twisted)] | [http://www.zeromq.org/bindings:racket Racket] | [http://www.zeromq.org/bindings:ruby Ruby] | [http://www.zeromq.org/bindings:ruby-ffi Ruby (FFI)]| [http://www.zeromq.org/bindings:_start More...]
+
+**기본 패키지**
+
+[http://zeromqonopenvms.blogspot.com/ OpenVMS] | [http://packages.debian.org/source/sid/zeromq Debian] | [https://github.com/zeromq/pyzmq/downloads Windows (incl. PyZMQ)]
+
+**배포**
+
+[http://www.zeromq.org/distro:gentoo Gentoo] | [[[http://zeromqonopenvms.blogspot.com | OpenVMS]]]
+
+**프로젝트**
+
+[https://github.com/zeromq/libzmq libzmq] (기본 핵심 API) | [http://czmq.zeromq.org czmq] (C 바인딩) | [https://github.com/zeromq/ztools ztools] (자동빌드 툴) | [http://github.com/zeromq/zeromq2-1 ZeroMQ/2.1 distro] | [http://github.com/zeromq/zeromq2-2 ZeroMQ/2.2 distro]
+
+**Wiki 영역**
+
+[http://www.zeromq.org/whitepapers:_start Whitepapers] | [http://www.zeromq.org/docs:_start 문서] | [http://www.zeromq.org/code:_start 예제 어플리케이션] | [http://www.zeromq.org/distro:_start 배포] | [http://www.zeromq.org/story:_start 사용자 ØMQ 경험] | [http://www.zeromq.org/topics:_start ØMQ프로젝트 논의주제] | [http://www.zeromq.org/results:_start 성능테스트] | [http://www.zeromq.org/tutorials:_start 튜토리얼] 
+
+[[/div]]
+
+[[div style="width:55%; float:left; padding-left: 5%"]]
+[[module Join button="Join Wiki"]]
+
+**행사**
+
+[!-- Please keep in order of date and delete past events --]
+**[http://www.zeromq.org/event:fosdem2012 Brussels, Belgium, Feb 4th 2012, 7pm]** FOSDEM ØMQ meetup
+**[http://www.zeromq.org/event:seoul-20120209 Seoul, South Korea, Feb 9th 2012]** ØMQ Forum 2012
+**[http://www.zeromq.org/event:pdxconf2012 Portland, OR, USA, Feb 25th 2012, 10:00am]** PDX ØMQ Unconference
+**[https://us.pycon.org/2012/schedule/presentation/260/ Santa Clara, CA, USA, Mar 9th 2012, 10:35 am]** PyCon US - ØMQ talk by Jérôme Petazzoni
+**[http://wrocloverb.com/ Wrocław, Poland, Mar 10th-11th]** wroc_love.rb - ØMQ talk by Martin Sustrik
+**[http://www.sg.com.mx/sgvirtual/2012/users/majimenezp SG Virtual Conference, Mar  22nd 2012]** ØMQ:Una capa de transporte inteligente y distribuida
+
+**논의 주제**
+[!-- PH: 2011/04/27: simplify, people aren't seeing & reading these topics --]
+[[size larger]]
+[http://www.zeromq.org/topics:cppzmq cppzmq] | [http://www.zeromq.org/docs:2-1-upgrade 2.0->2.1] | [http://www.zeromq.org/docs:3-0-upgrade 2.1->3.0] | [http://www.zeromq.org/topics:project-basket Basket] | [http://www.zeromq.org/topics:pubsub-security Secure pubsub] | [http://www.zeromq.org/topics:planning Planning]
+[http://www.zeromq.org/topics:0mq-over-http Port80] | [http://www.zeromq.org/whitepapers:architecture CoreArch] | [http://www.zeromq.org/topics:binding-abstractions APIAbstractions] | [http://www.zeromq.org/topics:libzutil libzutil] | [http://www.zeromq.org/topics:heartbeating Heartbeating]
+[[/size]]
+
+**최근 페이지**
+[[module ListPages category="docs,area,bindings,whitepapers" limit="16" order="updated_at desc" pagetype="normal" separate="false"]]
+##black|%%updated_at|%e %B%%##: **%%linked_title%%** (%%updated_by%%)
+[[/module]]
+
+[[/div]]

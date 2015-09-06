@@ -1,0 +1,35 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Demonstrate identities as used by the request-reply pattern.{{@@  @@}}Run this
+@@//@@{{@@  @@}}program by itself.{{@@  @@}}Note that the utility functions s_ are provided by
+@@//@@{{@@  @@}}zhelpers.h.{{@@  @@}}It gets boring for everyone to keep repeating this code.
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "zhelpers.h"[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]]) 
+{
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]context [[span style="color:#666666"]]=[[/span]] zmq_init ([[span style="color:#666666"]]1[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]sink [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_ROUTER);
+{{@@    @@}}zmq_bind (sink, [[span style="color:#BA2121"]]"inproc:@@//@@example"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}First allow 0MQ to set the identity//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]anonymous [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}zmq_connect (anonymous, [[span style="color:#BA2121"]]"inproc:@@//@@example"[[/span]]);
+{{@@    @@}}s_send (anonymous, [[span style="color:#BA2121"]]"ROUTER uses a generated UUID"[[/span]]);
+{{@@    @@}}s_dump (sink);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Then set the identity ourself//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]identified [[span style="color:#666666"]]=[[/span]] zmq_socket (context, ZMQ_REQ);
+{{@@    @@}}zmq_setsockopt (identified, ZMQ_IDENTITY, [[span style="color:#BA2121"]]"Hello"[[/span]], [[span style="color:#666666"]]5[[/span]]);
+{{@@    @@}}zmq_connect (identified, [[span style="color:#BA2121"]]"inproc:@@//@@example"[[/span]]);
+{{@@    @@}}s_send (identified, [[span style="color:#BA2121"]]"ROUTER socket uses REQ's socket identity"[[/span]]);
+{{@@    @@}}s_dump (sink);
+
+{{@@    @@}}zmq_close (sink);
+{{@@    @@}}zmq_close (anonymous);
+{{@@    @@}}zmq_close (identified);
+{{@@    @@}}zmq_term (context);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

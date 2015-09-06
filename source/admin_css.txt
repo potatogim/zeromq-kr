@@ -1,0 +1,132 @@
+[[code type="css"]]
+#header {
+    height: 160px;
+}
+
+#header h1 a span{
+    display: none;
+}
+
+#header h2 {
+    display: none;
+}
+
+#header h1 a,#header h1 a:hover{
+    background-image: url(/local--files/admin:css/logo.gif);
+    height: 119px;
+    width: 381px;
+    position: absolute;
+    top: 35px;
+    left: 7.3em;
+}
+
+#top-bar {
+    display: none;
+}
+
+#side-bar {
+	width: 12em;
+}
+
+#main-content{
+	margin-left: 14em;
+}
+
+#page-title {
+        font-size: 220%;
+}
+
+h1{
+	font-weight: bold;
+	font-size: 200%;
+}
+
+h2{
+	font-weight: bold;
+	font-size: 180%;
+}
+
+h3{
+	font-weight: bold;
+	font-size: 160%;
+}
+
+h4{
+	font-weight: bold;
+	font-size: 140%;
+}
+
+h5 {
+	font-weight: bold;
+	font-size: 120%;
+}
+
+h6 {
+	font-weight: bold;
+	font-size: 100%;
+}
+
+sup {
+       vertical-align: top;  
+}
+
+sub {
+       vertical-align: bottom;  
+}
+
+#page-info {
+    display: none;
+}
+
+div.page-tags {
+    padding-top: 2em;
+}
+
+#page-options-bottom {
+    padding-top: 2em;
+}
+
+#footer {
+    margin-left: 18em;
+    padding-bottom: 2em;
+    font-size: 75%;
+    color: #777;
+}
+
+#toc {
+    background-color: transparent;
+    border-style: none;
+}
+
+blockquote,div.code {
+    background-color: transparent;
+    border-style: dotted;
+    border-color: #000000;
+    margin: 0.4em 0;
+}
+
+ul {
+    list-style-type: disc;
+}
+
+dt {
+    line-height: 400%;
+    font-weight: bold;
+}
+
+a {
+    text-decoration: none;
+    color: #CC0000;
+}
+
+a:hover {
+    text-decoration: none;
+    color: #CC0000;
+}
+
+a.newpage {
+    text-decoration: none;
+    color: #CC0000;
+}
+
+[[/code]]

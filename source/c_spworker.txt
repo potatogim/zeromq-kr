@@ -1,0 +1,54 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Simple Pirate worker
+@@//@@{{@@  @@}}Connects REQ socket to tcp:@@//@@*:5556
+@@//@@{{@@  @@}}Implements worker part of LRU queueing
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+#define LRU_READY{{@@   @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Set random identity to make tracing easier//[[/span]]
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] identity @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@    @@}}sprintf (identity, [[span style="color:#BA2121"]]"%04X-%04X"[[/span]], randof ([[span style="color:#666666"]]0x10000[[/span]]), randof ([[span style="color:#666666"]]0x10000[[/span]]));
+{{@@    @@}}zmq_setsockopt (worker, ZMQ_IDENTITY, identity, strlen (identity));
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5556"[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell broker we're ready for work//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: (%s) worker ready[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], identity);
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (LRU_READY, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, worker, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] cycles [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Simulate various problems, after a few cycles//[[/span]]
+{{@@        @@}}cycles[[span style="color:#666666"]]++[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]5[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: (%s) simulating a crash[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], identity);
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (cycles [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]3[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]5[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: (%s) simulating CPU overload[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], identity);
+{{@@            @@}}sleep ([[span style="color:#666666"]]3[[/span]]);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (zctx_interrupted)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: (%s) normal reply[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], identity);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Do some heavy work//[[/span]]
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, worker);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

@@ -1,0 +1,228 @@
+[[div class="code"]]
+[[span style="color:#BC7A00"]]@@//@@
+@@//@@{{@@  @@}}Broker peering simulation (part 2)
+@@//@@{{@@  @@}}Prototypes the request-reply flow
+@@//@@
+@@//@@{{@@  @@}}While this example runs in a single process, that is just to make
+@@//@@{{@@  @@}}it easier to start and stop the example. Each thread has its own
+@@//@@{{@@  @@}}context and conceptually acts as a separate process.
+@@//@@
+#include "czmq.h"
+
+#define NBR_CLIENTS 10
+#define NBR_WORKERS 3
+#define LRU_READY{{@@   @@}}"\001"{{@@      @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Signals worker is ready//[[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Our own name; in practice this'd be configured per node//[[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]self;
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Request-reply client using REQ socket
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]client_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (client, [[span style="color:#BA2121"]]"ipc:@@//@@%s-localfe.ipc"[[/span]], self);
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send request, get reply//[[/span]]
+{{@@        @@}}zstr_send (client, [[span style="color:#BA2121"]]"HELLO"[[/span]]);
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]reply)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"Client: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply);
+{{@@        @@}}free (reply);
+{{@@        @@}}sleep ([[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Worker using REQ socket to do LRU routing
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] [[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]worker_task[[/span]] ([[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]args)
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]worker [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (worker, [[span style="color:#BA2121"]]"ipc:@@//@@%s-localbe.ipc"[[/span]], self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Tell broker we're ready for work//[[/span]]
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zframe_new (LRU_READY, [[span style="color:#666666"]]1[[/span]]);
+{{@@    @@}}zframe_send ([[span style="color:#666666"]]&[[/span]]frame, worker, [[span style="color:#666666"]]0[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Process messages as they arrive//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (worker);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}zframe_print (zmsg_last (msg), [[span style="color:#BA2121"]]"Worker: "[[/span]]);
+{{@@        @@}}zframe_reset (zmsg_last (msg), [[span style="color:#BA2121"]]"OK"[[/span]], [[span style="color:#666666"]]2[[/span]]);
+{{@@        @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, worker);
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+}
+
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}First argument is this broker's name//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Other arguments are our peers' names//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (argc [[span style="color:#666666"]]<[[/span]] [[span style="color:#666666"]]2[[/span]]) {
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"syntax: peering2 me {you}...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@        @@}}exit (EXIT_FAILURE);
+{{@@    @@}}}
+{{@@    @@}}self [[span style="color:#666666"]]=[[/span]] argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@;
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: preparing broker at %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], self);
+{{@@    @@}}srandom (([[span style="color:#B00040"]]unsigned[[/span]]) time ([[span style="color:#008000"]]NULL[[/span]]));
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare our context and sockets//[[/span]]
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] endpoint @@[@@[[span style="color:#666666"]]256[[/span]]@@]@@;
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Bind cloud frontend to endpoint//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]cloudfe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsockopt_set_identity (cloudfe, self);
+{{@@    @@}}zsocket_bind (cloudfe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-cloud.ipc"[[/span]], self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Connect cloud backend to all peers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]cloudbe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsockopt_set_identity (cloudfe, self);
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] argn;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (argn [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]]; argn [[span style="color:#666666"]]<[[/span]] argc; argn[[span style="color:#666666"]]++[[/span]]) {
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]peer [[span style="color:#666666"]]=[[/span]] argv @@[@@argn@@]@@;
+{{@@        @@}}printf ([[span style="color:#BA2121"]]"I: connecting to cloud frontend at '%s'[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], peer);
+{{@@        @@}}zsocket_connect (cloudbe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-cloud.ipc"[[/span]], peer);
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Prepare local frontend and backend//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]localfe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (localfe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-localfe.ipc"[[/span]], self);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]localbe [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_ROUTER);
+{{@@    @@}}zsocket_bind (localbe, [[span style="color:#BA2121"]]"ipc:@@//@@%s-localbe.ipc"[[/span]], self);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Get user to tell us when we can start...//[[/span]]
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"Press Enter when all brokers are started: "[[/span]]);
+{{@@    @@}}getchar ();
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start local workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] worker_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (worker_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; worker_nbr [[span style="color:#666666"]]<[[/span]] NBR_WORKERS; worker_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zthread_new (worker_task, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Start local clients//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] client_nbr;
+{{@@    @@}}[[span style="color:#008000"]]**for**[[/span]] (client_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]]; client_nbr [[span style="color:#666666"]]<[[/span]] NBR_CLIENTS; client_nbr[[span style="color:#666666"]]++[[/span]])
+{{@@        @@}}zthread_new (client_task, [[span style="color:#008000"]]NULL[[/span]]);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interesting part//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}@@-------------------------------------------------------------@@//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Request-reply flow//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- Poll backends and process local/cloud replies//[[/span]]
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}- While worker available, route localfe to local or cloud//[[/span]]
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Queue of available workers//[[/span]]
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] capacity [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}zlist_t [[span style="color:#666666"]]*[[/span]]workers [[span style="color:#666666"]]=[[/span]] zlist_new ();
+
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]1[[/span]]) {
+{{@@        @@}}zmq_pollitem_t backends @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@            @@}}{ localbe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@            @@}}{ cloudbe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@        @@}}};
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we have no workers anyhow, wait indefinitely//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (backends, [[span style="color:#666666"]]2[[/span]],
+{{@@            @@}}capacity[[span style="color:#666666"]]?[[/span]] [[span style="color:#666666"]]1000[[/span]] [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC[[span style="color:#666666"]]:[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]]);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@              @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Handle reply from local worker//[[/span]]
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]msg [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (backends @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (localbe);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@            @@}}zlist_append (workers, address);
+{{@@            @@}}capacity[[span style="color:#666666"]]++[[/span]];
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If it's READY, don't route the message any further//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] zmsg_first (msg);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (memcmp (zframe_data (frame), LRU_READY, [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]msg);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Or handle reply from peer broker//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (backends @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@            @@}}msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (cloudbe);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] ([[span style="color:#666666"]]![[/span]]msg)
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We don't use peer broker address for anything//[[/span]]
+{{@@            @@}}zframe_t [[span style="color:#666666"]]*[[/span]]address [[span style="color:#666666"]]=[[/span]] zmsg_unwrap (msg);
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]address);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Route reply to cloud if it's addressed to a broker//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**for**[[/span]] (argn [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]]; msg [[span style="color:#666666"]]&&[[/span]] argn [[span style="color:#666666"]]<[[/span]] argc; argn[[span style="color:#666666"]]++[[/span]]) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]data [[span style="color:#666666"]]=[[/span]] ([[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]) zframe_data (zmsg_first (msg));
+{{@@            @@}}[[span style="color:#B00040"]]size_t[[/span]] size [[span style="color:#666666"]]=[[/span]] zframe_size (zmsg_first (msg));
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (size [[span style="color:#666666"]]==[[/span]] strlen (argv @@[@@argn@@]@@)
+{{@@            @@}}[[span style="color:#666666"]]&&[[/span]]{{@@  @@}}memcmp (data, argv @@[@@argn@@]@@, size) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]])
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, cloudfe);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Route reply to client if we still need to//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (msg)
+{{@@            @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, localfe);
+
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Now route as many clients requests as we can handle//[[/span]]
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**while**[[/span]] (capacity) {
+{{@@            @@}}zmq_pollitem_t frontends @@[]@@ [[span style="color:#666666"]]=[[/span]] {
+{{@@                @@}}{ localfe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] },
+{{@@                @@}}{ cloudfe, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] }
+{{@@            @@}}};
+{{@@            @@}}rc [[span style="color:#666666"]]=[[/span]] zmq_poll (frontends, [[span style="color:#666666"]]2[[/span]], [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}assert (rc [[span style="color:#666666"]]>=[[/span]] [[span style="color:#666666"]]0[[/span]]);
+{{@@            @@}}[[span style="color:#B00040"]]int[[/span]] reroutable [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We'll do peer brokers first, to prevent starvation//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (frontends @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@                @@}}msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (cloudfe);
+{{@@                @@}}reroutable [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (frontends @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@                @@}}msg [[span style="color:#666666"]]=[[/span]] zmsg_recv (localfe);
+{{@@                @@}}reroutable [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@      @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}No work, go back to backends//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If reroutable, send to cloud 20% of the time//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Here we'd normally use cloud status information//[[/span]]
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (reroutable [[span style="color:#666666"]]&&[[/span]] argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]2[[/span]] [[span style="color:#666666"]]&&[[/span]] randof ([[span style="color:#666666"]]5[[/span]]) [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]0[[/span]]) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Route to random broker peer//[[/span]]
+{{@@                @@}}[[span style="color:#B00040"]]int[[/span]] random_peer [[span style="color:#666666"]]=[[/span]] randof (argc [[span style="color:#666666"]]-[[/span]] [[span style="color:#666666"]]2[[/span]]) [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]2[[/span]];
+{{@@                @@}}zmsg_pushmem (msg, argv @@[@@random_peer@@]@@, strlen (argv @@[@@random_peer@@]@@));
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, cloudbe);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (workers);
+{{@@                @@}}zmsg_wrap (msg, frame);
+{{@@                @@}}zmsg_send ([[span style="color:#666666"]]&[[/span]]msg, localbe);
+{{@@                @@}}capacity[[span style="color:#666666"]]@@--@@[[/span]];
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}When we're done, clean up properly//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] (zlist_size (workers)) {
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]frame [[span style="color:#666666"]]=[[/span]] (zframe_t [[span style="color:#666666"]]*[[/span]]) zlist_pop (workers);
+{{@@        @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]frame);
+{{@@    @@}}}
+{{@@    @@}}zlist_destroy ([[span style="color:#666666"]]&[[/span]]workers);
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] EXIT_SUCCESS;
+}
+[[/div]]

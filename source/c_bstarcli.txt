@@ -1,0 +1,70 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Binary Star client
+@@//@@[[/span]][[/span]]
+[[span style="color:#BC7A00"]]#include "czmq.h"
+
+#define REQUEST_TIMEOUT{{@@     @@}}1000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}msecs//[[/span]]
+[[span style="color:#BC7A00"]]#define SETTLE_DELAY{{@@        @@}}2000{{@@    @@}}[[/span]][[span style="color:#408080"]]//@@//@@{{@@  @@}}Before failing over//[[/span]]
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]void[[/span]])
+{
+{{@@    @@}}zctx_t [[span style="color:#666666"]]*[[/span]]ctx [[span style="color:#666666"]]=[[/span]] zctx_new ();
+
+{{@@    @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]server @@[]@@ [[span style="color:#666666"]]=[[/span]] { [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5001"[[/span]], [[span style="color:#BA2121"]]"tcp:@@//@@localhost:5002"[[/span]] };
+{{@@    @@}}uint server_nbr [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+
+{{@@    @@}}printf ([[span style="color:#BA2121"]]"I: connecting to server at %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], server @@[@@server_nbr@@]@@);
+{{@@    @@}}[[span style="color:#B00040"]]void[[/span]] [[span style="color:#666666"]]*[[/span]]client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@    @@}}zsocket_connect (client, server @@[@@server_nbr@@]@@);
+
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] sequence [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We send a request, then we work to get a reply//[[/span]]
+{{@@        @@}}[[span style="color:#B00040"]]char[[/span]] request @@[@@[[span style="color:#666666"]]10[[/span]]@@]@@;
+{{@@        @@}}sprintf (request, [[span style="color:#BA2121"]]"%d"[[/span]], [[span style="color:#666666"]]++[[/span]]sequence);
+{{@@        @@}}zstr_send (client, request);
+
+{{@@        @@}}[[span style="color:#B00040"]]int[[/span]] expect_reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]1[[/span]];
+{{@@        @@}}[[span style="color:#008000"]]**while**[[/span]] (expect_reply) {
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Poll socket for a reply, with timeout//[[/span]]
+{{@@            @@}}zmq_pollitem_t items @@[]@@ [[span style="color:#666666"]]=[[/span]] { { client, [[span style="color:#666666"]]0[[/span]], ZMQ_POLLIN, [[span style="color:#666666"]]0[[/span]] } };
+{{@@            @@}}[[span style="color:#B00040"]]int[[/span]] rc [[span style="color:#666666"]]=[[/span]] zmq_poll (items, [[span style="color:#666666"]]1[[/span]], REQUEST_TIMEOUT [[span style="color:#666666"]]*[[/span]] ZMQ_POLL_MSEC);
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (rc [[span style="color:#666666"]]==[[/span]] [[span style="color:#666666"]]-[[/span]][[span style="color:#666666"]]1[[/span]])
+{{@@                @@}}[[span style="color:#008000"]]**break**[[/span]];{{@@          @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted//[[/span]]
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}If we got a reply, process it//[[/span]]
+{{@@            @@}}[[span style="color:#008000"]]**if**[[/span]] (items @@[@@[[span style="color:#666666"]]0[[/span]]@@]@@.revents [[span style="color:#666666"]]&[[/span]] ZMQ_POLLIN) {
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}We got a reply from the server, must match sequence//[[/span]]
+{{@@                @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] zstr_recv (client);
+{{@@                @@}}[[span style="color:#008000"]]**if**[[/span]] (atoi (reply) [[span style="color:#666666"]]==[[/span]] sequence) {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"I: server replied OK (%s)[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply);
+{{@@                    @@}}expect_reply [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]0[[/span]];
+{{@@                    @@}}sleep ([[span style="color:#666666"]]1[[/span]]);{{@@  @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}One request per second//[[/span]]
+{{@@                @@}}}
+{{@@                @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                    @@}}printf ([[span style="color:#BA2121"]]"E: malformed reply from server: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@                        @@}}reply);
+{{@@                @@}}}
+{{@@                @@}}free (reply);
+{{@@            @@}}}
+{{@@            @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"W: no response from server, failing over[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Old socket is confused; close it and open a new one//[[/span]]
+{{@@                @@}}zsocket_destroy (ctx, client);
+{{@@                @@}}server_nbr [[span style="color:#666666"]]=[[/span]] (server_nbr [[span style="color:#666666"]]+[[/span]] [[span style="color:#666666"]]1[[/span]]) [[span style="color:#666666"]]%[[/span]] [[span style="color:#666666"]]2[[/span]];
+{{@@                @@}}zclock_sleep (SETTLE_DELAY);
+{{@@                @@}}printf ([[span style="color:#BA2121"]]"I: connecting to server at %s...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]],
+{{@@                        @@}}server @@[@@server_nbr@@]@@);
+{{@@                @@}}client [[span style="color:#666666"]]=[[/span]] zsocket_new (ctx, ZMQ_REQ);
+{{@@                @@}}zsocket_connect (client, server @@[@@server_nbr@@]@@);
+
+{{@@                @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Send request again, on new socket//[[/span]]
+{{@@                @@}}zstr_send (client, request);
+{{@@            @@}}}
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zctx_destroy ([[span style="color:#666666"]]&[[/span]]ctx);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

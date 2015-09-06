@@ -1,0 +1,89 @@
+[[div class="code"]]
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@
+@@//@@{{@@  @@}}Titanic client example
+@@//@@{{@@  @@}}Implements client side of http:@@//@@rfc.zeromq.org/spec:9[[/span]][[/span]]
+
+[[span style="color:#408080"]]//@@//@@{{@@  @@}}Lets us build this source without creating a library//[[/span]]
+[[span style="color:#BC7A00"]]#include "mdcliapi.c"[[/span]]
+
+[[span style="color:#408080"]][[span style="font-style:italic"]]@@//@@{{@@  @@}}Calls a TSP service
+@@//@@{{@@  @@}}Returns reponse if successful (status code 200 OK), else NULL
+@@//@@[[/span]][[/span]]
+[[span style="color:#008000"]]**static**[[/span]] zmsg_t [[span style="color:#666666"]]*[[/span]]
+[[span style="color:#0000FF"]]s_service_call[[/span]] (mdcli_t [[span style="color:#666666"]]*[[/span]]session, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]service, zmsg_t [[span style="color:#666666"]]@@**@@[[/span]]request_p)
+{
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] mdcli_send (session, service, request_p);
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}zframe_t [[span style="color:#666666"]]*[[/span]]status [[span style="color:#666666"]]=[[/span]] zmsg_pop (reply);
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (status, [[span style="color:#BA2121"]]"200"[[/span]])) {
+{{@@            @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]status);
+{{@@            @@}}[[span style="color:#008000"]]**return**[[/span]] reply;
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (status, [[span style="color:#BA2121"]]"400"[[/span]])) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: client fatal error, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}exit (EXIT_FAILURE);
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (zframe_streq (status, [[span style="color:#BA2121"]]"500"[[/span]])) {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"E: server fatal error, aborting[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}exit (EXIT_FAILURE);
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}[[span style="color:#008000"]]**else**[[/span]]
+{{@@        @@}}exit (EXIT_SUCCESS);{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Interrupted or failed//[[/span]]
+
+{{@@    @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#008000"]]NULL[[/span]];{{@@        @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Didn't succeed, don't care why not//[[/span]]
+}
+
+[[span style="color:#B00040"]]int[[/span]] [[span style="color:#0000FF"]]main[[/span]] ([[span style="color:#B00040"]]int[[/span]] argc, [[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]argv @@[]@@)
+{
+{{@@    @@}}[[span style="color:#B00040"]]int[[/span]] verbose [[span style="color:#666666"]]=[[/span]] (argc [[span style="color:#666666"]]>[[/span]] [[span style="color:#666666"]]1[[/span]] [[span style="color:#666666"]]&&[[/span]] streq (argv @@[@@[[span style="color:#666666"]]1[[/span]]@@]@@, [[span style="color:#BA2121"]]"-v"[[/span]]));
+{{@@    @@}}mdcli_t [[span style="color:#666666"]]*[[/span]]session [[span style="color:#666666"]]=[[/span]] mdcli_new ([[span style="color:#BA2121"]]"tcp:@@//@@localhost:5555"[[/span]], verbose);
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}1. Send 'echo' request to Titanic//[[/span]]
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@    @@}}zmsg_addstr (request, [[span style="color:#BA2121"]]"echo"[[/span]]);
+{{@@    @@}}zmsg_addstr (request, [[span style="color:#BA2121"]]"Hello world"[[/span]]);
+{{@@    @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] s_service_call (
+{{@@        @@}}session, [[span style="color:#BA2121"]]"titanic.request"[[/span]], [[span style="color:#666666"]]&[[/span]]request);
+
+{{@@    @@}}zframe_t [[span style="color:#666666"]]*[[/span]]uuid [[span style="color:#666666"]]=[[/span]] [[span style="color:#008000"]]NULL[[/span]];
+{{@@    @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@        @@}}uuid [[span style="color:#666666"]]=[[/span]] zmsg_pop (reply);
+{{@@        @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@        @@}}zframe_print (uuid, [[span style="color:#BA2121"]]"I: request UUID "[[/span]]);
+{{@@    @@}}}
+
+{{@@    @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}2. Wait until we get a reply//[[/span]]
+{{@@    @@}}[[span style="color:#008000"]]**while**[[/span]] ([[span style="color:#666666"]]![[/span]]zctx_interrupted) {
+{{@@        @@}}zclock_sleep ([[span style="color:#666666"]]100[[/span]]);
+{{@@        @@}}request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@        @@}}zmsg_add (request, zframe_dup (uuid));
+{{@@        @@}}zmsg_t [[span style="color:#666666"]]*[[/span]]reply [[span style="color:#666666"]]=[[/span]] s_service_call (
+{{@@            @@}}session, [[span style="color:#BA2121"]]"titanic.reply"[[/span]], [[span style="color:#666666"]]&[[/span]]request);
+
+{{@@        @@}}[[span style="color:#008000"]]**if**[[/span]] (reply) {
+{{@@            @@}}[[span style="color:#B00040"]]char[[/span]] [[span style="color:#666666"]]*[[/span]]reply_string [[span style="color:#666666"]]=[[/span]] zframe_strdup (zmsg_last (reply));
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"Reply: %s[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]], reply_string);
+{{@@            @@}}free (reply_string);
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+
+{{@@            @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}3. Close request//[[/span]]
+{{@@            @@}}request [[span style="color:#666666"]]=[[/span]] zmsg_new ();
+{{@@            @@}}zmsg_add (request, zframe_dup (uuid));
+{{@@            @@}}reply [[span style="color:#666666"]]=[[/span]] s_service_call (session, [[span style="color:#BA2121"]]"titanic.close"[[/span]], [[span style="color:#666666"]]&[[/span]]request);
+{{@@            @@}}zmsg_destroy ([[span style="color:#666666"]]&[[/span]]reply);
+{{@@            @@}}[[span style="color:#008000"]]**break**[[/span]];
+{{@@        @@}}}
+{{@@        @@}}[[span style="color:#008000"]]**else**[[/span]] {
+{{@@            @@}}printf ([[span style="color:#BA2121"]]"I: no reply yet, trying again...[[/span]][[span style="color:#BB6622"]]**\n**[[/span]][[span style="color:#BA2121"]]"[[/span]]);
+{{@@            @@}}zclock_sleep ([[span style="color:#666666"]]5000[[/span]]);{{@@     @@}}[[span style="color:#408080"]]//@@//@@{{@@  @@}}Try again in 5 seconds//[[/span]]
+{{@@        @@}}}
+{{@@    @@}}}
+{{@@    @@}}zframe_destroy ([[span style="color:#666666"]]&[[/span]]uuid);
+{{@@    @@}}mdcli_destroy ([[span style="color:#666666"]]&[[/span]]session);
+{{@@    @@}}[[span style="color:#008000"]]**return**[[/span]] [[span style="color:#666666"]]0[[/span]];
+}
+[[/div]]

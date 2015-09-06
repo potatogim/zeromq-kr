@@ -1,0 +1,4 @@
+[[div class="code"]]
+[[span style="color:#B00040"]]uint64_t[[/span]] hwm [[span style="color:#666666"]]=[[/span]] [[span style="color:#666666"]]2[[/span]];
+zmq_setsockopt (publisher, ZMQ_HWM, [[span style="color:#666666"]]&[[/span]]hwm, [[span style="color:#008000"]]**sizeof**[[/span]] (hwm));
+[[/div]]
