@@ -1,0 +1,7 @@
+* [[[http://shop.oreilly.com/product/0636920026136.do | ZeroMQ]]] — by Pieter Hintjens, published by O'Reilly
+
+* [[[http://hintjens.com/blog:30 | Code Connected Volume 1]]] — by Pieter Hintjens, published by iMatix
+
+* [[[http://www.packtpub.com/zeromq-to-apply-different-message-patterns/book | ZeroMQ]]] — by Faruk Akgul, published by Packt
+
+* [[[http://pragprog.com/book/jwnode/node-js-the-right-way |Node.js the Right Way]]] — by Jim R. Wilson

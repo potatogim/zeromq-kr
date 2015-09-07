@@ -1,0 +1,45 @@
+[[size larger]]**##red|ZeroMQ##**[[/size]] \zero-em-queue\, \ØMQ\:
+##red|Ø## 코드를 모든 언어, 모든 플랫폼 상에서 연결
+##red|Ø## inproc, IPC, TCP, TIPC, 멀티캐스트를 통해 메시지들을 전달
+##red|Ø## pub-sub, push-pull, 그리고 router-dealer와 같은 영리한 패턴들
+##red|Ø## 아주 작은 라이브러리에 고속 비동기 I/O 엔진
+##red|Ø## 대규모의 활동적인 오픈 소스 커뮤니티 지원
+##red|Ø## 모든 현대 언어와 플랫폼을 지원
+##red|Ø## 모든 아키텍처를 구성: 중앙 집중, 분산, 소규모 혹은 대형
+##red|Ø## 완전 상업적 지원을 동반하는 무료 소프트웨어
+
+[[div style="overflow:hidden"]]
+[[div style="float:left; width:12em; text-align:center;"]]
+[[span style="font-size:400%"]][/page:read-the-manual 배우기][[/span]]
+[[span style="font-size:120%"]]##red|기본 사항##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:12em; text-align:center; margin-left:3em;"]]
+[[span style="font-size:400%"]][/page:get-the-software 얻기][[/span]]
+[[span style="font-size:120%"]]##red|소프트웨어##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:12em; text-align:center; margin-left:3em;"]]
+[[span style="font-size:400%"]][/page:ask-for-help 해결][[/span]]
+[[span style="font-size:120%"]]##red|문제##[[/span]]
+[[/div]]
+[[/div]]
+
+[[div style="overflow:hidden"]]
+
+[[div style="float:left; width:12em; text-align:center;"]]
+[[span style="font-size:400%"]][/community 가입][[/span]]
+[[span style="font-size:120%"]]##red|커뮤니티##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:12em; text-align:center; margin-left:3em;"]]
+[[span style="font-size:400%"]][/page:commercial-support 지불][[/span]]
+[[span style="font-size:120%"]]##red|지원##[[/span]]
+[[/div]]
+
+[[div style="float:left; width:12em; text-align:center; margin-left:3em;"]]
+[[span style="font-size:400%"]][/intro:books 구매][[/span]]
+[[span style="font-size:120%"]]##red|서적##[[/span]]
+[[/div]]
+
+[[/div]]
