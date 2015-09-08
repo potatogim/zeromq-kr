@@ -3,7 +3,7 @@
 ## 개요
 [ZeroMQ](http://zeromq.org/)는 iMatix 사의 CEO이자 수석 소프트웨어 설계자인 [Pieter Hintjens](https://en.wikipedia.org/wiki/Pieter_Hintjens)<<ph@imatix.com>>이 주도하는 오픈소스 분산 메시징 프레임워크입니다.
 
-본 프로젝트는 ZeroMQ의 공식 웹페이지 번역을 통해 대한민국의 개발자들이 더 쉽게 ZeroMQ를 접할 수 있도록 하기 위해서 시작되었으며, 원저자인 Hintjens의 허락 하에 진행되고 있습니다.
+본 프로젝트는 ZeroMQ의 공식 웹페이지 번역을 통해 대한민국의 개발자들이 더 쉽게 ZeroMQ를 접할 수 있도록 하기 위해서 시작되었으며, 원저자인 Hintjens의 동의 하에 진행되고 있습니다.
 
 
 ## 문의
